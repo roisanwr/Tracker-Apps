@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 // Menggunakan absolute path agar lebih aman terbaca oleh IDE
 import 'package:workout_tracker/core/theme/app_theme.dart';
+// Import halaman login untuk navigasi saat logout
+import 'package:workout_tracker/features/auth/presentation/login_page.dart';
+
+import 'package:workout_tracker/features/tracker/dashboard_view.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -27,6 +31,20 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       _selectedIndex = index;
     });
+  }
+
+  // Fungsi Logout
+  Future<void> _handleLogout() async {
+    // 1. Sign out dari Supabase
+    await Supabase.instance.client.auth.signOut();
+    
+    // 2. Cek apakah widget masih aktif sebelum navigasi (Best Practice)
+    if (mounted) {
+      // 3. Lempar balik ke Login Page & hapus semua history route sebelumnya
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const LoginPage()),
+      );
+    }
   }
 
   @override
@@ -110,6 +128,17 @@ class _HomePageState extends State<HomePage> {
         return AppBar(
           backgroundColor: const Color(0xFF1E1E1E),
           toolbarHeight: 80,
+          // Tombol Logout ditambahkan di sini (actions)
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: IconButton(
+                icon: const Icon(Icons.logout, color: Colors.redAccent),
+                tooltip: 'Logout',
+                onPressed: _handleLogout,
+              ),
+            ),
+          ],
           title: Row(
             children: [
               // 1. AVATAR & LEVEL

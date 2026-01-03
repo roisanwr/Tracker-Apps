@@ -9,11 +9,18 @@ class AppTheme {
   static const Color neonYellow = Color(0xFFFCEE09); // Kuning Cyber
   static const Color textWhite = Color(0xFFFAFAFA);
 
+  // Ekspos warna utama dan sekunder agar file lain dapat merujuknya
+  static const Color primaryColor = neonBlue;
+  static const Color secondaryColor = neonYellow;
   static ThemeData get darkTheme {
     return ThemeData(
       brightness: Brightness.dark,
       scaffoldBackgroundColor: background,
       primaryColor: neonBlue,
+      colorScheme: const ColorScheme.dark(
+        primary: neonBlue,
+        secondary: neonYellow,
+      ),
       
       // Kustomisasi Input Text (Kotak isian)
       inputDecorationTheme: InputDecorationTheme(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'login_page.dart';
+import 'register_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'main.dart'; // Biar bisa akses HomePage
+import 'register_page.dart'; // Biar bisa pindah ke RegisterPage
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -85,9 +86,15 @@ class _LoginPageState extends State<LoginPage> {
                         child: const Text('Login'),
                       ),
                       TextButton(
-                        onPressed: _signUp,
+                        onPressed: () {
+                            // Pindah ke halaman Register
+                            Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const RegisterPage()),
+                            );
+                        },
                         child: const Text('Belum punya akun? Daftar'),
-                      ),
+                        ),
                     ],
                   ),
           ],

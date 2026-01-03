@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'features/auth/presentation/login_page.dart'; // <-- Import yang benar (jalur baru)
+import 'core/theme/app_theme.dart'; // Import file tadi
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,11 +24,9 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Workout Tracker',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
-      // Kita langsung arahkan ke Login Page
-      home: const LoginPage(), 
+      debugShowCheckedModeBanner: false, // Hilangkan pita debug
+      theme: AppTheme.darkTheme, // <--- PAKAI INI
+      home: const LoginPage(),
     );
   }
 }

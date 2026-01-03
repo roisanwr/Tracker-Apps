@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'main.dart'; // Biar bisa akses HomePage
-import 'register_page.dart'; // Biar bisa pindah ke RegisterPage
+import '../../../../main.dart'; // Akses HomePage (sesuaikan path import jika merah)
+import '../services/auth_service.dart'; // Import Service Otak kita
+import 'register_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -13,46 +14,41 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _authService = AuthService(); // Panggil si Otak
   bool _isLoading = false;
 
-  // Fungsi Login
   Future<void> _signIn() async {
     setState(() => _isLoading = true);
     try {
-      await Supabase.instance.client.auth.signInWithPassword(
+      // UI cuma minta tolong ke Service: "Eh, tolong loginin user ini"
+      await _authService.signIn(
         email: _emailController.text,
         password: _passwordController.text,
       );
+
       if (mounted) {
-        // Kalau sukses, pindah ke Home
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const HomePage()),
         );
       }
+    } on AuthException catch (e) {
+      // Error khusus Supabase (misal: password salah)
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message), 
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Login Gagal: $e')),
-      );
-    }
-    setState(() => _isLoading = false);
-  }
-
-  // Fungsi Daftar (Register)
-  Future<void> _signUp() async {
-    setState(() => _isLoading = true);
-    try {
-      await Supabase.instance.client.auth.signUp(
-        email: _emailController.text,
-        password: _passwordController.text,
-      );
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Akun berhasil dibuat! Silakan Login.')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      // Error umum lainnya
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Terjadi kesalahan: $e')),
+        );
+      }
     }
     setState(() => _isLoading = false);
   }
@@ -60,7 +56,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Login Workout App')),
+      appBar: AppBar(title: const Text('Login Workout')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -87,14 +83,14 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       TextButton(
                         onPressed: () {
-                            // Pindah ke halaman Register
-                            Navigator.push(
+                          Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (context) => const RegisterPage()),
-                            );
+                            MaterialPageRoute(
+                                builder: (context) => const RegisterPage()),
+                          );
                         },
                         child: const Text('Belum punya akun? Daftar'),
-                        ),
+                      ),
                     ],
                   ),
           ],

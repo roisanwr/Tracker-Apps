@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'main.dart'; // Biar bisa pindah ke HomePage kalau sukses
-import 'login_page.dart'; // Biar bisa balik ke Login kalau batal
+import '../../../../main.dart';
+import '../services/auth_service.dart'; // Import Service
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -13,11 +13,12 @@ class RegisterPage extends StatefulWidget {
 class _RegisterPageState extends State<RegisterPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _confirmPasswordController = TextEditingController(); // Tambahan biar aman
+  final _confirmPasswordController = TextEditingController();
+  final _authService = AuthService(); // Panggil Service
   bool _isLoading = false;
 
   Future<void> _signUp() async {
-    // 1. Validasi Input Kosong
+    // Validasi dasar tetap di UI (karena ini urusan tampilan/input user)
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Email dan Password wajib diisi!')),
@@ -25,10 +26,9 @@ class _RegisterPageState extends State<RegisterPage> {
       return;
     }
 
-    // 2. Validasi Password Sama
     if (_passwordController.text != _confirmPasswordController.text) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Password tidak sama, cek lagi bro!')),
+        const SnackBar(content: Text('Password tidak sama!')),
       );
       return;
     }
@@ -36,33 +36,38 @@ class _RegisterPageState extends State<RegisterPage> {
     setState(() => _isLoading = true);
 
     try {
-      // 3. Kirim ke Supabase
-      final AuthResponse res = await Supabase.instance.client.auth.signUp(
+      // Panggil Service untuk urusan 'berat' ke database
+      final response = await _authService.signUp(
         email: _emailController.text,
         password: _passwordController.text,
       );
 
-      // 4. Cek apakah langsung login (karena konfirmasi email OFF)
       if (mounted) {
-        if (res.session != null) {
-          // Kalau dapat sesi, berarti sukses login -> Masuk ke Home
+        if (response.session != null) {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(builder: (context) => const HomePage()),
-            (route) => false, // Hapus riwayat halaman belakang biar gak bisa 'Back' ke register
+            (route) => false,
           );
         } else {
-          // Kalau butuh verifikasi email (jaga-jaga kalau settingan nyala)
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Cek email kamu untuk verifikasi!')),
+            const SnackBar(content: Text('Cek email untuk verifikasi!')),
           );
-          Navigator.pop(context); // Balik ke halaman login
+          Navigator.pop(context);
         }
       }
+    } on AuthException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Gagal Daftar: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
     }
 
     setState(() => _isLoading = false);
@@ -70,15 +75,17 @@ class _RegisterPageState extends State<RegisterPage> {
 
   @override
   Widget build(BuildContext context) {
+    // ... (Bagian UI build di bawahnya biarkan sama seperti sebelumnya, 
+    // atau copy ulang dari file lama bagian build-nya saja kalau kamu mau)
     return Scaffold(
       appBar: AppBar(title: const Text('Buat Akun Baru')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: SingleChildScrollView( // Biar bisa discroll kalau keyboard muncul
+        child: SingleChildScrollView(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.fitness_center, size: 80, color: Colors.blue), // Logo biar keren dikit
+              const Icon(Icons.fitness_center, size: 80, color: Colors.blue),
               const SizedBox(height: 20),
               TextField(
                 controller: _emailController,
@@ -112,7 +119,7 @@ class _RegisterPageState extends State<RegisterPage> {
               _isLoading
                   ? const CircularProgressIndicator()
                   : SizedBox(
-                      width: double.infinity, // Tombol selebar layar
+                      width: double.infinity,
                       height: 50,
                       child: ElevatedButton(
                         onPressed: _signUp,
@@ -121,9 +128,7 @@ class _RegisterPageState extends State<RegisterPage> {
                     ),
               const SizedBox(height: 10),
               TextButton(
-                onPressed: () {
-                  Navigator.pop(context); // Balik ke halaman login
-                },
+                onPressed: () => Navigator.pop(context),
                 child: const Text('Sudah punya akun? Login'),
               ),
             ],

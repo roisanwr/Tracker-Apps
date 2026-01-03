@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../../main.dart';
-import '../services/auth_service.dart'; // Import Service
+import '../services/auth_service.dart';
+// PERBAIKAN DI SINI: Alamat HomePage yang benar
+import '../../tracker/home_page.dart'; 
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -14,11 +15,10 @@ class _RegisterPageState extends State<RegisterPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  final _authService = AuthService(); // Panggil Service
+  final _authService = AuthService();
   bool _isLoading = false;
 
   Future<void> _signUp() async {
-    // Validasi dasar tetap di UI (karena ini urusan tampilan/input user)
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Email dan Password wajib diisi!')),
@@ -36,8 +36,8 @@ class _RegisterPageState extends State<RegisterPage> {
     setState(() => _isLoading = true);
 
     try {
-      // Panggil Service untuk urusan 'berat' ke database
-      final response = await _authService.signUp(
+      // Kita set tipe data eksplisit 'AuthResponse' biar editor gak bingung
+      final AuthResponse response = await _authService.signUp(
         email: _emailController.text,
         password: _passwordController.text,
       );
@@ -46,6 +46,7 @@ class _RegisterPageState extends State<RegisterPage> {
         if (response.session != null) {
           Navigator.pushAndRemoveUntil(
             context,
+            // HomePage() sekarang sudah aman (tidak merah)
             MaterialPageRoute(builder: (context) => const HomePage()),
             (route) => false,
           );
@@ -75,8 +76,6 @@ class _RegisterPageState extends State<RegisterPage> {
 
   @override
   Widget build(BuildContext context) {
-    // ... (Bagian UI build di bawahnya biarkan sama seperti sebelumnya, 
-    // atau copy ulang dari file lama bagian build-nya saja kalau kamu mau)
     return Scaffold(
       appBar: AppBar(title: const Text('Buat Akun Baru')),
       body: Padding(

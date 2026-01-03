@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../../main.dart'; // Akses HomePage (sesuaikan path import jika merah)
-import '../services/auth_service.dart'; // Import Service Otak kita
+// PERBAIKAN DI SINI: Kita panggil HomePage dari folder tracker
+import '../../tracker/home_page.dart'; 
+import '../services/auth_service.dart';
 import 'register_page.dart';
 
 class LoginPage extends StatefulWidget {
@@ -20,7 +21,6 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _signIn() async {
     setState(() => _isLoading = true);
     try {
-      // UI cuma minta tolong ke Service: "Eh, tolong loginin user ini"
       await _authService.signIn(
         email: _emailController.text,
         password: _passwordController.text,
@@ -29,11 +29,11 @@ class _LoginPageState extends State<LoginPage> {
       if (mounted) {
         Navigator.pushReplacement(
           context,
+          // Sekarang HomePage() sudah dikenali karena import-nya benar
           MaterialPageRoute(builder: (context) => const HomePage()),
         );
       }
     } on AuthException catch (e) {
-      // Error khusus Supabase (misal: password salah)
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -43,7 +43,6 @@ class _LoginPageState extends State<LoginPage> {
         );
       }
     } catch (e) {
-      // Error umum lainnya
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Terjadi kesalahan: $e')),

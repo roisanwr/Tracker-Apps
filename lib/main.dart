@@ -23,6 +23,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false, // <--- TAMBAHKAN BARIS INI
       title: 'Workout Tracker',
       theme: ThemeData(
         primarySwatch: Colors.blue,
@@ -35,22 +36,53 @@ class MyApp extends StatelessWidget {
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
+  // Fungsi Logout
+  Future<void> _signOut(BuildContext context) async {
+    await Supabase.instance.client.auth.signOut();
+    
+    if (context.mounted) {
+      // Pindah balik ke halaman Login & hapus riwayat navigasi sebelumnya
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginPage()),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Workout Tracker')),
+      appBar: AppBar(
+        title: const Text('Workout Tracker'),
+        actions: [
+          // Tombol Logout di Pojok Kanan Atas
+          IconButton(
+            onPressed: () => _signOut(context),
+            icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
+          ),
+        ],
+      ),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('Koneksi Supabase Berhasil!'),
+            const Icon(Icons.check_circle, size: 80, color: Colors.green),
             const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: () {
-                // Nanti kita tambah fungsi tes database di sini
-                print("Tombol ditekan"); 
-              },
-              child: const Text('Tes Koneksi'),
+            const Text(
+              'Halo! Kamu berhasil masuk.',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 30),
+            // Tombol Logout Cadangan di Tengah
+            ElevatedButton.icon(
+              onPressed: () => _signOut(context),
+              icon: const Icon(Icons.logout),
+              label: const Text('Logout Sekarang'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red, // Warna merah biar kelihatan tombol 'bahaya'
+                foregroundColor: Colors.white,
+              ),
             ),
           ],
         ),

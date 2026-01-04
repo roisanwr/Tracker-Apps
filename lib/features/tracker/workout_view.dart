@@ -67,17 +67,19 @@ class _WorkoutViewState extends State<WorkoutView> {
         .stream(primaryKey: ['id'])
         .eq('user_id', _userId)
         .map((data) {
+          // Cast the incoming list from Supabase to a list of maps
+          final items = List<Map<String, dynamic>>.from(data);
           final now = DateTime.now();
           final todayStr = DateFormat('yyyy-MM-dd').format(now);
 
           // 1. Ambil Template Hari Ini
-          final templates = data
+          final templates = items
               .where(
                   (w) => w['status'] == 'template' && w['notes'] == _todayName)
               .toList();
 
           // 2. Ambil Workout Selesai Hari Ini
-          final completed = data.where((w) {
+          final completed = items.where((w) {
             if (w['status'] != 'completed') return false;
             if (w['started_at'] == null) return false;
             final date = DateTime.parse(w['started_at']).toLocal();
@@ -89,9 +91,10 @@ class _WorkoutViewState extends State<WorkoutView> {
             'completed': completed
           };
         })
-        .asyncMap((data) async {
-          final template = data['template'];
-          final completedWorkouts = data['completed'] as List<dynamic>;
+        .asyncMap((payload) async {
+          // payload comes from the previous map: cast fields appropriately
+          final template = payload['temp late'] as Map<String, dynamic>?;
+          final completedWorkouts = payload['completed'] as List<dynamic>;
 
           if (template == null) return <Map<String, dynamic>>[];
 
@@ -161,8 +164,10 @@ class _WorkoutViewState extends State<WorkoutView> {
       List<Map<String, dynamic>> scheduledExercises) async {
     final List<Map<String, dynamic>> prefilledData =
         scheduledExercises.map((e) {
-      final exerciseLib = e['exercise_library'];
-      final sets = e['sets'] as List;
+      // 🛠️ FIX: Pastikan e diperlakukan sebagai Map
+      final itemMap = e;
+      final exerciseLib = itemMap['exercise_library'];
+      final sets = itemMap['sets'] as List;
 
       String tier = sets.isNotEmpty ? sets.first['tier'] : 'D';
       int totalTarget = sets.isNotEmpty ? sets.first['target_value'] : 0;

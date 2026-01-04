@@ -1,17 +1,117 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:workout_tracker/core/theme/app_theme.dart';
-// Import Widget Radar Chart (Pastikan file ini ada)
 import 'package:workout_tracker/features/tracker/widgets/stat_radar_chart.dart';
 
-class DashboardView extends StatelessWidget {
+class DashboardView extends StatefulWidget {
   const DashboardView({super.key});
+
+  @override
+  State<DashboardView> createState() => _DashboardViewState();
+}
+
+class _DashboardViewState extends State<DashboardView> {
+  final String _userId = Supabase.instance.client.auth.currentUser!.id;
+
+  // State untuk menyimpan statistik RPG
+  Map<String, double> _rpgStats = {
+    'STR': 0.1,
+    'INT': 0.1,
+    'VIT': 0.1,
+    'DEX': 0.1,
+    'CHA': 0.1,
+  };
+
+  // State level visual (untuk teks Lv. 1, Lv. 5, dll)
+  Map<String, int> _rpgLevels = {
+    'STR': 1,
+    'INT': 1,
+    'VIT': 1,
+    'DEX': 1,
+    'CHA': 1
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _calculateRealStats(); // Hitung statistik saat halaman dibuka
+  }
+
+  // 🧠 RPG ENGINE: Hitung statistik berdasarkan riwayat aktivitas
+  Future<void> _calculateRealStats() async {
+    try {
+      // 1. Ambil Hitungan Task yang Selesai per Kategori
+      final tasksResponse = await Supabase.instance.client
+          .from('tasks')
+          .select('category')
+          .eq('user_id', _userId)
+          .eq('is_completed', true);
+
+      // 2. Ambil Hitungan Workout yang Selesai
+      final workoutsResponse = await Supabase.instance.client
+          .from('workouts')
+          .select('id') // Cukup ID aja
+          .eq('user_id', _userId)
+          .eq('status', 'completed');
+
+      // 3. Hitung Total Poin Mentah
+      int strRaw = workoutsResponse.length; // 1 Workout = 1 Poin STR
+      int intRaw = 0;
+      int vitRaw = 0;
+      int chaRaw = 0;
+      int dexRaw = 0;
+
+      for (var t in tasksResponse) {
+        final cat = t['category'];
+        if (cat == 'Intellect')
+          intRaw++;
+        else if (cat == 'Vitality')
+          vitRaw++;
+        else if (cat == 'Charisma')
+          chaRaw++;
+        else if (cat == 'Wealth') dexRaw++; // Wealth masuk ke DEX
+      }
+
+      // 4. Normalisasi Data (0.0 - 1.0) untuk Radar Chart
+      // Anggap Level 10 (Max Stats) butuh 50 poin aktivitas.
+      double normalize(int val) {
+        double res = val / 50.0;
+        return res > 1.0
+            ? 1.0
+            : (res < 0.1 ? 0.1 : res); // Min 0.1 biar grafik gak hilang
+      }
+
+      // Hitung Level Visual (Simple: Poin / 5)
+      int calcLevel(int val) => (val ~/ 5) + 1;
+
+      if (mounted) {
+        setState(() {
+          _rpgStats = {
+            'STR': normalize(strRaw),
+            'INT': normalize(intRaw),
+            'VIT': normalize(vitRaw),
+            'DEX': normalize(dexRaw),
+            'CHA': normalize(chaRaw),
+          };
+
+          _rpgLevels = {
+            'STR': calcLevel(strRaw),
+            'INT': calcLevel(intRaw),
+            'VIT': calcLevel(vitRaw),
+            'DEX': calcLevel(dexRaw),
+            'CHA': calcLevel(chaRaw),
+          };
+        });
+      }
+    } catch (e) {
+      debugPrint("Error calculating stats: $e");
+    }
+  }
 
   Stream<List<Map<String, dynamic>>> _getProfileStream() {
     return Supabase.instance.client
         .from('profiles')
-        .stream(primaryKey: ['id'])
-        .eq('id', Supabase.instance.client.auth.currentUser!.id);
+        .stream(primaryKey: ['id']).eq('id', _userId);
   }
 
   @override
@@ -21,17 +121,13 @@ class DashboardView extends StatelessWidget {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(
-            child: CircularProgressIndicator(color: AppTheme.primaryColor),
-          );
+              child: CircularProgressIndicator(color: AppTheme.primaryColor));
         }
 
         if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return const Center(
-            child: Text(
-              "Profile Not Found",
-              style: TextStyle(color: Colors.white),
-            ),
-          );
+              child: Text("Profile Not Found",
+                  style: TextStyle(color: Colors.white)));
         }
 
         final profile = snapshot.data!.first;
@@ -40,174 +136,120 @@ class DashboardView extends StatelessWidget {
         final int currentPoints = profile['current_points'] ?? 0;
         final int streakCurrent = profile['streak_current'] ?? 0;
 
-        // 🚧 DUMMY STATS (Persentase 0.0 - 1.0)
-        final Map<String, double> rpgStats = {
-          'STR': 0.7,
-          'INT': 0.8,
-          'VIT': 0.5,
-          'DEX': 0.4,
-          'CHA': 0.6,
-        };
+        return RefreshIndicator(
+          onRefresh: _calculateRealStats, // Tarik layar untuk refresh statistik
+          color: AppTheme.primaryColor,
+          backgroundColor: const Color(0xFF1E1E1E),
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // 1. CHARACTER STATUS
+                _buildIdentitySection(profile, level, currentXp),
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // 1. CHARACTER STATUS
-              _buildIdentitySection(profile, level, currentXp),
+                const SizedBox(height: 30),
 
-              const SizedBox(height: 30),
-
-              // 2. RADAR CHART
-              const Text(
-                "ATTRIBUTE HEXAGON",
-                style: TextStyle(
-                  color: AppTheme.primaryColor,
-                  fontSize: 12,
-                  letterSpacing: 2,
-                  fontWeight: FontWeight.bold,
+                // 2. RADAR CHART (REAL DATA) 🕸️
+                const Text(
+                  "ATTRIBUTE HEXAGON",
+                  style: TextStyle(
+                      color: AppTheme.primaryColor,
+                      fontSize: 12,
+                      letterSpacing: 2,
+                      fontWeight: FontWeight.bold),
                 ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                height: 220,
-                child: StatRadarChart(
-                  data: rpgStats,
-                  activeColor: AppTheme.primaryColor,
+                const SizedBox(height: 20),
+                SizedBox(
+                  height: 220,
+                  child: StatRadarChart(
+                    data: _rpgStats,
+                    activeColor: AppTheme.primaryColor,
+                  ),
                 ),
-              ),
 
-              const SizedBox(height: 30),
+                const SizedBox(height: 30),
 
-              // 3. ⚡ VISUAL ATTRIBUTES (GAMBAR ASSET DI SINI)
-              // Bagian ini menampilkan ikon otot/otak yang kamu minta
-              SizedBox(
-                height: 100,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                // 3. VISUAL ATTRIBUTES (Dengan Icon, bukan Image Asset biar aman)
+                // Menampilkan Level Stat yang sudah dihitung
+                SizedBox(
+                  height: 100,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildAttributeCard('STR', 'Lv. ${_rpgLevels['STR']}',
+                          Icons.fitness_center, Colors.redAccent),
+                      _buildAttributeCard('INT', 'Lv. ${_rpgLevels['INT']}',
+                          Icons.psychology, Colors.blueAccent),
+                      _buildAttributeCard('VIT', 'Lv. ${_rpgLevels['VIT']}',
+                          Icons.favorite, Colors.greenAccent),
+                      _buildAttributeCard('DEX', 'Lv. ${_rpgLevels['DEX']}',
+                          Icons.flash_on, Colors.purpleAccent),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 30),
+
+                // 4. STATS ROW
+                Row(
                   children: [
-                    _buildImageAssetCard(
-                      'STR',
-                      'Lv. 5',
-                      'assets/images/icon_str.png',
-                      Colors.greenAccent,
+                    Expanded(
+                      child: _buildCompactStat("STREAK", "$streakCurrent",
+                          "Days", Icons.local_fire_department, Colors.orange),
                     ),
-                    _buildImageAssetCard(
-                      'INT',
-                      'Lv. 8',
-                      'assets/images/icon_int.png',
-                      Colors.blueAccent,
-                    ),
-                    _buildImageAssetCard(
-                      'VIT',
-                      'Lv. 3',
-                      'assets/images/icon_vit.png',
-                      Colors.redAccent,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildCompactStat("CREDITS", "$currentPoints",
+                          "CP", Icons.monetization_on, Colors.amber),
                     ),
                   ],
                 ),
-              ),
 
-              const SizedBox(height: 30),
-
-              // 4. STATS ROW
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildCompactStat(
-                      "STREAK",
-                      "$streakCurrent",
-                      "Days",
-                      Icons.local_fire_department,
-                      Colors.orange,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildCompactStat(
-                      "CREDITS",
-                      "$currentPoints",
-                      "CP",
-                      Icons.monetization_on,
-                      Colors.amber,
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 80),
-            ],
+                const SizedBox(height: 80),
+              ],
+            ),
           ),
         );
       },
     );
   }
 
-  // WIDGET BARU: Kartu Atribut dengan Gambar
-  Widget _buildImageAssetCard(
-    String label,
-    String value,
-    String assetPath,
-    Color glowColor,
-  ) {
+  // WIDGET: Kartu Atribut dengan Icon
+  Widget _buildAttributeCard(
+      String label, String value, IconData icon, Color color) {
     return Container(
-      width: 80,
+      width: 70,
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: glowColor.withOpacity(0.3)),
-        boxShadow: [
-          BoxShadow(
-            color: glowColor.withOpacity(0.1),
-            blurRadius: 10,
-            spreadRadius: 1,
-          ),
-        ],
-      ),
+          color: const Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.3)),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.1),
+              blurRadius: 8,
+              spreadRadius: 0,
+            )
+          ]),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Gambar Aset (Fallback ke Icon kalau gambar belum ada)
-          SizedBox(
-            height: 40,
-            width: 40,
-            child: Image.asset(
-              assetPath,
-              fit: BoxFit.contain,
-              errorBuilder: (context, error, stackTrace) {
-                // Tampilkan icon default kalau file gambar belum dimasukkan
-                return Icon(
-                  Icons.broken_image,
-                  color: glowColor.withOpacity(0.5),
-                );
-              },
-            ),
-          ),
+          Icon(icon, color: color, size: 28),
           const SizedBox(height: 8),
-          Text(
-            label,
-            style: TextStyle(
-              color: glowColor,
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-            ),
-          ),
-          Text(
-            value,
-            style: const TextStyle(color: Colors.white, fontSize: 10),
-          ),
+          Text(label,
+              style: TextStyle(
+                  color: color, fontWeight: FontWeight.bold, fontSize: 12)),
+          Text(value,
+              style: const TextStyle(color: Colors.white, fontSize: 10)),
         ],
       ),
     );
   }
 
   Widget _buildIdentitySection(
-    Map<String, dynamic> profile,
-    int level,
-    int xp,
-  ) {
+      Map<String, dynamic> profile, int level, int xp) {
     String username = profile['username'] ?? profile['full_name'] ?? 'Player';
     username = username.split('@')[0];
 
@@ -216,19 +258,20 @@ class DashboardView extends StatelessWidget {
     if (level > 30) rank = "Adept";
     if (level > 50) rank = "Master";
 
+    // Hitung progress bar level (0.0 - 1.0)
+    // Asumsi per level butuh 1000 XP (atau bisa ambil dari level rules nanti)
+    double progress = (xp % 1000) / 1000;
+
     return Column(
       children: [
         Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.primaryColor.withOpacity(0.4),
-                blurRadius: 20,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
+          decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: [
+            BoxShadow(
+              color: AppTheme.primaryColor.withOpacity(0.4),
+              blurRadius: 20,
+              spreadRadius: 2,
+            )
+          ]),
           child: CircleAvatar(
             radius: 40,
             backgroundColor: const Color(0xFF1E1E1E),
@@ -239,18 +282,15 @@ class DashboardView extends StatelessWidget {
         Text(
           username.toUpperCase(),
           style: const TextStyle(
-            color: Colors.white,
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.5,
-          ),
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.5),
         ),
         Text(
           "$rank Lvl. $level",
           style: TextStyle(
-            color: AppTheme.primaryColor.withOpacity(0.8),
-            fontSize: 14,
-          ),
+              color: AppTheme.primaryColor.withOpacity(0.8), fontSize: 14),
         ),
         const SizedBox(height: 16),
         Container(
@@ -262,7 +302,7 @@ class DashboardView extends StatelessWidget {
           ),
           child: FractionallySizedBox(
             alignment: Alignment.centerLeft,
-            widthFactor: (xp % 1000) / 1000,
+            widthFactor: progress,
             child: Container(
               decoration: BoxDecoration(
                 color: AppTheme.secondaryColor,
@@ -272,21 +312,14 @@ class DashboardView extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 4),
-        Text(
-          "${xp % 1000} / 1000 XP",
-          style: TextStyle(color: Colors.grey[600], fontSize: 10),
-        ),
+        Text("${xp % 1000} / 1000 XP",
+            style: TextStyle(color: Colors.grey[600], fontSize: 10)),
       ],
     );
   }
 
   Widget _buildCompactStat(
-    String label,
-    String value,
-    String unit,
-    IconData icon,
-    Color color,
-  ) {
+      String label, String value, String unit, IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
       decoration: BoxDecoration(
@@ -302,35 +335,25 @@ class DashboardView extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                label,
-                style: TextStyle(
-                  color: Colors.grey[500],
-                  fontSize: 10,
-                  letterSpacing: 1,
-                ),
-              ),
+              Text(label,
+                  style: TextStyle(
+                      color: Colors.grey[500], fontSize: 10, letterSpacing: 1)),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.baseline,
                 textBaseline: TextBaseline.alphabetic,
                 children: [
-                  Text(
-                    value,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  Text(value,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold)),
                   const SizedBox(width: 4),
-                  Text(
-                    unit,
-                    style: TextStyle(color: Colors.grey[500], fontSize: 10),
-                  ),
+                  Text(unit,
+                      style: TextStyle(color: Colors.grey[500], fontSize: 10)),
                 ],
               ),
             ],
-          ),
+          )
         ],
       ),
     );

@@ -7,6 +7,7 @@ import 'package:workout_tracker/features/auth/presentation/login_page.dart';
 import 'package:workout_tracker/features/tracker/dashboard_view.dart';
 import 'package:workout_tracker/features/tracker/task_view.dart';
 import 'package:workout_tracker/features/tracker/workout_view.dart';
+import 'package:workout_tracker/features/tracker/shop_view.dart'; // 👈 Import ini
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -23,7 +24,7 @@ class _HomePageState extends State<HomePage> {
     DashboardView(),
     WorkoutView(),
     TaskView(),
-    _ShopView(),
+    ShopView(),
   ];
 
   @override
@@ -253,15 +254,5 @@ class _HomePageState extends State<HomePage> {
         );
       },
     );
-  }
-}
-
-class _ShopView extends StatelessWidget {
-  const _ShopView();
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-        child: Text('💎 REWARDS SHOP HERE',
-            style: TextStyle(color: Colors.white)));
   }
 }

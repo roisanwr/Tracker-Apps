@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 
 class StatRadarChart extends StatelessWidget {
   final Map<String, double>
-  data; // Key: Nama Stat, Value: 0.0 - 1.0 (Persentase)
+      data; // Key: Nama Stat, Value: 0.0 - 1.0 (Persentase)
   final Color baseColor;
   final Color activeColor;
 
@@ -107,13 +107,7 @@ class _RadarChartPainter extends CustomPainter {
   }
 
   void _drawText(
-    Canvas canvas,
-    String text,
-    double x,
-    double y,
-    double cx,
-    double cy,
-  ) {
+      Canvas canvas, String text, double x, double y, double cx, double cy) {
     final textSpan = TextSpan(
       text: text,
       style: const TextStyle(
@@ -137,9 +131,7 @@ class _RadarChartPainter extends CustomPainter {
     if (y > cy) offsetY = 5; // Bawah
 
     textPainter.paint(
-      canvas,
-      Offset(x + offsetX - (textPainter.width / 2), y + offsetY),
-    );
+        canvas, Offset(x + offsetX - (textPainter.width / 2), y + offsetY));
   }
 
   @override

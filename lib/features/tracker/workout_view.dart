@@ -11,8 +11,8 @@ class WorkoutView extends StatefulWidget {
   State<WorkoutView> createState() => _WorkoutViewState();
 }
 
-class _WorkoutViewState extends State<WorkoutView>
-    with SingleTickerProviderStateMixin {
+// 🛠️ FIX: Hapus SingleTickerProviderStateMixin karena tidak ada TabController di sini
+class _WorkoutViewState extends State<WorkoutView> {
   final String _userId = Supabase.instance.client.auth.currentUser!.id;
   late String _todayName;
 
@@ -60,24 +60,93 @@ class _WorkoutViewState extends State<WorkoutView>
     }
   }
 
+  // 📡 STREAM UPGRADED: Gabungkan Rencana (Template) + Realisasi (Log Hari Ini)
   Stream<List<Map<String, dynamic>>> _getTodayWorkoutStream() {
     return Supabase.instance.client
         .from('workouts')
         .stream(primaryKey: ['id'])
         .eq('user_id', _userId)
-        .map((data) => data
-            .where((w) => w['status'] == 'template' && w['notes'] == _todayName)
-            .toList())
-        .asyncMap((workouts) async {
-          if (workouts.isEmpty) return [];
-          final workoutId = workouts.first['id'];
+        .map((data) {
+          final now = DateTime.now();
+          final todayStr = DateFormat('yyyy-MM-dd').format(now);
 
-          final response = await Supabase.instance.client
+          // 1. Ambil Template Hari Ini
+          final templates = data
+              .where(
+                  (w) => w['status'] == 'template' && w['notes'] == _todayName)
+              .toList();
+
+          // 2. Ambil Workout Selesai Hari Ini
+          final completed = data.where((w) {
+            if (w['status'] != 'completed') return false;
+            if (w['started_at'] == null) return false;
+            final date = DateTime.parse(w['started_at']).toLocal();
+            return DateFormat('yyyy-MM-dd').format(date) == todayStr;
+          }).toList();
+
+          return {
+            'template': templates.isNotEmpty ? templates.first : null,
+            'completed': completed
+          };
+        })
+        .asyncMap((data) async {
+          final template = data['template'];
+          final completedWorkouts = data['completed'] as List<dynamic>;
+
+          if (template == null) return <Map<String, dynamic>>[];
+
+          final templateId = template['id'];
+
+          // 3. Ambil Plan Latihan
+          final templateExercises = await Supabase.instance.client
               .from('workout_exercises')
               .select('*, exercise_library(*), sets(*)')
-              .eq('workout_id', workoutId);
+              .eq('workout_id', templateId);
 
-          return List<Map<String, dynamic>>.from(response);
+          // 4. Ambil Realisasi Latihan (Jika ada sesi selesai hari ini)
+          List<dynamic> completedExercises = [];
+          if (completedWorkouts.isNotEmpty) {
+            final workoutIds = completedWorkouts.map((w) => w['id']).toList();
+            // Gunakan .filter('col', 'in', list)
+            completedExercises = await Supabase.instance.client
+                .from('workout_exercises')
+                .select('*, sets(*)')
+                .filter('workout_id', 'in', workoutIds);
+          }
+
+          // 5. GABUNGKAN DATA (Plan + Realisasi)
+          return List<Map<String, dynamic>>.from(
+              templateExercises.map((planItem) {
+            final exerciseId = planItem['exercise_id'];
+
+            // Cari record latihan yang sama di daftar 'completed'
+            final matches = completedExercises
+                .where((c) => c['exercise_id'] == exerciseId)
+                .toList();
+
+            int totalCompletedReps = 0;
+            bool isDone = matches.isNotEmpty;
+
+            if (isDone) {
+              for (var m in matches) {
+                final sets = m['sets'] as List;
+                for (var s in sets) {
+                  if (s['is_completed'] == true) {
+                    totalCompletedReps += (s['completed_value'] as int? ?? 0);
+                  }
+                }
+              }
+            }
+
+            // Masukkan data realisasi ke dalam item
+            final mutableItem = Map<String, dynamic>.from(planItem);
+            mutableItem['realization'] = {
+              'is_done': isDone,
+              'total_completed': totalCompletedReps
+            };
+
+            return mutableItem;
+          }));
         });
   }
 
@@ -87,7 +156,7 @@ class _WorkoutViewState extends State<WorkoutView>
     );
   }
 
-  // ⚡ UPDATE: Auto-Fill Target ke Input Realisasi
+  // ⚡ SMART START SESSION (AUTO-SPLIT LOGIC) 🧠
   Future<void> _startSession(
       List<Map<String, dynamic>> scheduledExercises) async {
     final List<Map<String, dynamic>> prefilledData =
@@ -95,25 +164,47 @@ class _WorkoutViewState extends State<WorkoutView>
       final exerciseLib = e['exercise_library'];
       final sets = e['sets'] as List;
 
-      // Ambil data Tier dan Target dari jadwal
       String tier = sets.isNotEmpty ? sets.first['tier'] : 'D';
-      int target = sets.isNotEmpty ? sets.first['target_value'] : 0;
+      int totalTarget = sets.isNotEmpty ? sets.first['target_value'] : 0;
+
+      List<Map<String, dynamic>> generatedSets = [];
+
+      // Jika target besar (> 20) dan tipenya Reps (bukan detik/meter), pecah jadi 3 set
+      bool shouldSplit =
+          totalTarget > 20 && exerciseLib['measurement_unit'] == 'reps';
+
+      if (shouldSplit) {
+        int repsPerSet = (totalTarget / 3).ceil();
+        generatedSets.add({
+          'reps': repsPerSet.toString(),
+          'weight': '0',
+          'tier': tier,
+          'is_completed': false
+        });
+        generatedSets.add({
+          'reps': repsPerSet.toString(),
+          'weight': '0',
+          'tier': tier,
+          'is_completed': false
+        });
+        generatedSets.add({
+          'reps': repsPerSet.toString(),
+          'weight': '0',
+          'tier': tier,
+          'is_completed': false
+        });
+      } else {
+        generatedSets.add({
+          'reps': totalTarget.toString(),
+          'weight': '0',
+          'tier': tier,
+          'is_completed': false
+        });
+      }
 
       return {
         'exercise': exerciseLib,
-        'sets': <Map<String, dynamic>>[
-          {
-            // ⚡ UX MAGIC: Pre-fill kolom Reps dengan Target dari Tier!
-            // Jadi user gak perlu ngetik ulang, tinggal centang kalau berhasil.
-            'reps': target.toString(),
-
-            // Default berat 0
-            'weight': '0',
-
-            'tier': tier,
-            'is_completed': false
-          }
-        ]
+        'sets': generatedSets,
       };
     }).toList();
 
@@ -215,27 +306,73 @@ class _WorkoutViewState extends State<WorkoutView>
                     final target =
                         sets.isNotEmpty ? sets.first['target_value'] : 0;
 
+                    final realization =
+                        item['realization'] as Map<String, dynamic>?;
+                    final bool isDone = realization?['is_done'] ?? false;
+                    final int completedAmount =
+                        realization?['total_completed'] ?? 0;
+
                     return Container(
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1E1E1E),
+                        color: isDone
+                            ? AppTheme.secondaryColor.withOpacity(0.1)
+                            : const Color(0xFF1E1E1E),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white10),
+                        border: Border.all(
+                            color: isDone
+                                ? AppTheme.secondaryColor.withOpacity(0.5)
+                                : Colors.white10),
                       ),
                       child: ListTile(
                         leading: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                              color: Colors.black,
+                              color: isDone
+                                  ? AppTheme.secondaryColor
+                                  : Colors.black,
                               borderRadius: BorderRadius.circular(8)),
-                          child: const Icon(Icons.fitness_center,
-                              color: Colors.grey, size: 20),
+                          child: Icon(
+                              isDone ? Icons.check : Icons.fitness_center,
+                              color: isDone ? Colors.black : Colors.grey,
+                              size: 20),
                         ),
                         title: Text(exercise['name'],
-                            style: const TextStyle(
+                            style: TextStyle(
                                 color: Colors.white,
-                                fontWeight: FontWeight.bold)),
-                        subtitle: Text("Tier $tier • Target: $target",
-                            style: const TextStyle(color: Colors.grey)),
+                                fontWeight: FontWeight.bold,
+                                decoration:
+                                    isDone ? TextDecoration.lineThrough : null,
+                                decorationColor: AppTheme.secondaryColor)),
+                        subtitle: Row(
+                          children: [
+                            Container(
+                              margin: const EdgeInsets.only(right: 8, top: 4),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                  color: Colors.grey[800],
+                                  borderRadius: BorderRadius.circular(4)),
+                              child: Text("Tier $tier",
+                                  style: const TextStyle(
+                                      color: Colors.white, fontSize: 10)),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4.0),
+                              child: Text(
+                                isDone
+                                    ? "Done: $completedAmount / $target ${exercise['measurement_unit']}"
+                                    : "Target: $target ${exercise['measurement_unit']}",
+                                style: TextStyle(
+                                    color: isDone
+                                        ? AppTheme.secondaryColor
+                                        : Colors.grey,
+                                    fontWeight: isDone
+                                        ? FontWeight.bold
+                                        : FontWeight.normal),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     );
                   },
@@ -264,9 +401,10 @@ class _WorkoutViewState extends State<WorkoutView>
   }
 }
 
-// ... (WeeklyPlannerPage code remains the same)
-// ... (ScheduleEditorSheet code remains the same)
-// Pastikan WeeklyPlannerPage dan EditorSheet tetap ada di bawah sini seperti file sebelumnya
+// =============================================================================
+// 📅 WEEKLY PLANNER PAGE
+// =============================================================================
+
 class WeeklyPlannerPage extends StatefulWidget {
   const WeeklyPlannerPage({super.key});
 
@@ -453,6 +591,9 @@ class _WeeklyPlannerPageState extends State<WeeklyPlannerPage>
   }
 }
 
+// -----------------------------------------------------------------------------
+// ⚡ EDITOR SHEET UPGRADE: HYBRID INPUT (LIBRARY vs CUSTOM)
+// -----------------------------------------------------------------------------
 class _ScheduleEditorSheet extends StatefulWidget {
   final String day;
   final String userId;
@@ -470,6 +611,21 @@ class _ScheduleEditorSheet extends StatefulWidget {
 }
 
 class _ScheduleEditorSheetState extends State<_ScheduleEditorSheet> {
+  // Mode: 'library' atau 'custom'
+  String _mode = 'library';
+
+  // Controller untuk Custom Input
+  final _customNameController = TextEditingController();
+  String _customMuscle = 'Chest';
+  String _customType = 'strength';
+
+  // 🛠️ FIX: Dispose controller biar gak memory leak
+  @override
+  void dispose() {
+    _customNameController.dispose();
+    super.dispose();
+  }
+
   void _addExerciseToSchedule(
       Map<String, dynamic> exercise, String tier) async {
     try {
@@ -528,6 +684,35 @@ class _ScheduleEditorSheetState extends State<_ScheduleEditorSheet> {
     }
   }
 
+  Future<void> _saveCustomExercise() async {
+    if (_customNameController.text.isEmpty) return;
+
+    try {
+      final res = await Supabase.instance.client
+          .from('exercise_library')
+          .insert({
+            'name': _customNameController.text,
+            'target_muscle': _customMuscle,
+            'scale_type': _customType,
+            'measurement_unit': _customType == 'cardio_run'
+                ? 'meters'
+                : (_customType == 'static_hold' ? 'seconds' : 'reps'),
+            'created_by': widget.userId,
+          })
+          .select()
+          .single();
+
+      if (mounted) {
+        _showTierPicker(res);
+      }
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text("Error creating exercise: $e"),
+            backgroundColor: Colors.red));
+    }
+  }
+
   void _showTierPicker(Map<String, dynamic> exercise) {
     showDialog(
       context: context,
@@ -562,44 +747,157 @@ class _ScheduleEditorSheetState extends State<_ScheduleEditorSheet> {
         children: [
           Padding(
             padding: const EdgeInsets.all(16.0),
-            child: Text("Add to ${widget.day} Schedule",
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold)),
-          ),
-          Expanded(
-            child: StreamBuilder<List<Map<String, dynamic>>>(
-              stream: Supabase.instance.client
-                  .from('exercise_library')
-                  .stream(primaryKey: ['id']).order('name', ascending: true),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData)
-                  return const Center(
-                      child: CircularProgressIndicator(
-                          color: AppTheme.primaryColor));
-
-                final exercises = snapshot.data!;
-                return ListView.separated(
-                  controller: widget.scrollController,
-                  itemCount: exercises.length,
-                  separatorBuilder: (_, __) =>
-                      const Divider(color: Colors.white10),
-                  itemBuilder: (context, index) {
-                    final ex = exercises[index];
-                    return ListTile(
-                      title: Text(ex['name'],
-                          style: const TextStyle(color: Colors.white)),
-                      subtitle: Text(
-                          "${ex['target_muscle']} • ${ex['scale_type']}",
-                          style: const TextStyle(color: Colors.grey)),
-                      onTap: () => _showTierPicker(ex),
-                    );
-                  },
-                );
-              },
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildModeButton("Library", "library"),
+                const SizedBox(width: 12),
+                _buildModeButton("Custom +", "custom"),
+              ],
             ),
           ),
+          Expanded(
+            child:
+                _mode == 'library' ? _buildLibraryList() : _buildCustomForm(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModeButton(String label, String value) {
+    bool isSelected = _mode == value;
+    return GestureDetector(
+      onTap: () => setState(() => _mode = value),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? AppTheme.primaryColor : Colors.black,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppTheme.primaryColor),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                color: isSelected ? Colors.black : Colors.white,
+                fontWeight: FontWeight.bold)),
+      ),
+    );
+  }
+
+  Widget _buildLibraryList() {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: Supabase.instance.client
+          .from('exercise_library')
+          .stream(primaryKey: ['id']).order('name', ascending: true),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData)
+          return const Center(
+              child: CircularProgressIndicator(color: AppTheme.primaryColor));
+
+        final exercises = snapshot.data!;
+        return ListView.separated(
+          controller: widget.scrollController,
+          itemCount: exercises.length,
+          separatorBuilder: (_, __) => const Divider(color: Colors.white10),
+          itemBuilder: (context, index) {
+            final ex = exercises[index];
+            return ListTile(
+              title:
+                  Text(ex['name'], style: const TextStyle(color: Colors.white)),
+              subtitle: Text("${ex['target_muscle']} • ${ex['scale_type']}",
+                  style: const TextStyle(color: Colors.grey)),
+              onTap: () => _showTierPicker(ex),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildCustomForm() {
+    return SingleChildScrollView(
+      controller: widget.scrollController,
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Create New Exercise",
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(height: 24),
+          TextField(
+            controller: _customNameController,
+            style: const TextStyle(color: Colors.white),
+            decoration: const InputDecoration(
+              labelText: "Exercise Name",
+              labelStyle: TextStyle(color: Colors.grey),
+              enabledBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: Colors.grey)),
+            ),
+          ),
+          const SizedBox(height: 24),
+          DropdownButtonFormField<String>(
+            value: _customMuscle,
+            dropdownColor: Colors.grey[900],
+            style: const TextStyle(color: Colors.white),
+            decoration: const InputDecoration(
+                labelText: "Target Muscle",
+                labelStyle: TextStyle(color: Colors.grey)),
+            items: [
+              'Chest',
+              'Back',
+              'Legs',
+              'Arms',
+              'Shoulders',
+              'Core',
+              'Full Body',
+              'Cardio'
+            ].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+            onChanged: (val) => setState(() => _customMuscle = val!),
+          ),
+          const SizedBox(height: 24),
+          DropdownButtonFormField<String>(
+            value: _customType,
+            dropdownColor: Colors.grey[900],
+            style: const TextStyle(color: Colors.white),
+            decoration: const InputDecoration(
+                labelText: "Type (Scale)",
+                labelStyle: TextStyle(color: Colors.grey)),
+            items: [
+              DropdownMenuItem(
+                  value: 'strength', child: Text("Strength (Reps)")),
+              DropdownMenuItem(
+                  value: 'endurance', child: Text("Endurance (High Reps)")),
+              DropdownMenuItem(value: 'power', child: Text("Power (Low Reps)")),
+              DropdownMenuItem(
+                  value: 'static_hold', child: Text("Static (Seconds)")),
+              DropdownMenuItem(
+                  value: 'cardio_run', child: Text("Cardio (Distance)")),
+            ].toList(),
+            onChanged: (val) => setState(() => _customType = val!),
+          ),
+          const SizedBox(height: 40),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _saveCustomExercise,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryColor,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                foregroundColor: Colors.black,
+              ),
+              child: const Text("CREATE & ADD TO SCHEDULE",
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            "Note: This will add the exercise to the library permanently.",
+            style: TextStyle(color: Colors.grey, fontSize: 12),
+            textAlign: TextAlign.center,
+          )
         ],
       ),
     );

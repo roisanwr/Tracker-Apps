@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+// ⚡ IMPORT TIMEZONE
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:workout_tracker/core/theme/app_theme.dart';
 import 'package:workout_tracker/features/auth/presentation/login_page.dart';
-// 1. IMPORT DUA MENU YANG SUDAH JADI
 import 'package:workout_tracker/features/tracker/dashboard_view.dart';
-import 'package:workout_tracker/features/tracker/task_view.dart'; // ✅ Import TaskView
+import 'package:workout_tracker/features/tracker/task_view.dart';
+import 'package:workout_tracker/features/tracker/workout_view.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -17,13 +19,36 @@ class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
   final String _userId = Supabase.instance.client.auth.currentUser!.id;
 
-  // 2. GANTI PLACEHOLDER DENGAN WIDGET ASLI
   static const List<Widget> _pages = <Widget>[
-    DashboardView(),  // Halaman HQ (Sudah jadi)
-    _WorkoutView(),   // (Masih placeholder)
-    TaskView(),       // ✅ Halaman Misi (Sudah jadi!)
-    _ShopView(),      // (Masih placeholder)
+    DashboardView(),
+    WorkoutView(),
+    TaskView(),
+    _ShopView(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // ⚡ AUTO-REPORT: Lapor Timezone ke Database saat aplikasi dibuka
+    _updateUserTimezone();
+  }
+
+  // Fungsi untuk update Timezone User di Database
+  Future<void> _updateUserTimezone() async {
+    try {
+      // 1. Ambil Timezone dari HP (Contoh: "Asia/Jakarta")
+      final String currentTimezone = await FlutterTimezone.getLocalTimezone();
+
+      // 2. Kirim ke Database
+      await Supabase.instance.client
+          .from('profiles')
+          .update({'timezone': currentTimezone}).eq('id', _userId);
+
+      // debugPrint("✅ Timezone updated to: $currentTimezone");
+    } catch (e) {
+      debugPrint("⚠️ Failed to update timezone: $e");
+    }
+  }
 
   void _onItemTapped(int index) {
     setState(() {
@@ -44,17 +69,13 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      
-      // RPG Header
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(80),
         child: _buildRpgHeader(),
       ),
-      
       body: Center(
         child: _pages.elementAt(_selectedIndex),
       ),
-      
       bottomNavigationBar: BottomNavigationBar(
         items: const <BottomNavigationBarItem>[
           BottomNavigationBarItem(
@@ -88,8 +109,7 @@ class _HomePageState extends State<HomePage> {
   Widget _buildRpgHeader() {
     final stream = Supabase.instance.client
         .from('profiles')
-        .stream(primaryKey: ['id'])
-        .eq('id', _userId);
+        .stream(primaryKey: ['id']).eq('id', _userId);
 
     return StreamBuilder<List<Map<String, dynamic>>>(
       stream: stream,
@@ -106,10 +126,10 @@ class _HomePageState extends State<HomePage> {
         final int currentXp = data['current_xp'] ?? 0;
         final int points = data['current_points'] ?? 0;
         final int streak = data['streak_current'] ?? 0;
-        // Fallback name
-        final String username = data['username'] ?? data['full_name'] ?? 'Player';
+        final String username =
+            data['username'] ?? data['full_name'] ?? 'Player';
 
-        double xpProgress = (currentXp % 1000) / 1000; 
+        double xpProgress = (currentXp % 1000) / 1000;
 
         return AppBar(
           backgroundColor: const Color(0xFF1E1E1E),
@@ -130,7 +150,7 @@ class _HomePageState extends State<HomePage> {
               Stack(
                 alignment: Alignment.bottomRight,
                 children: [
-                   CircleAvatar(
+                  CircleAvatar(
                     radius: 24,
                     backgroundColor: Colors.grey[800],
                     child: const Icon(Icons.person, color: Colors.white),
@@ -153,7 +173,7 @@ class _HomePageState extends State<HomePage> {
                 ],
               ),
               const SizedBox(width: 12),
-              
+
               // XP Bar & Name
               Expanded(
                 child: Column(
@@ -161,12 +181,13 @@ class _HomePageState extends State<HomePage> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      username.contains('@') ? username.split('@')[0] : username,
+                      username.contains('@')
+                          ? username.split('@')[0]
+                          : username,
                       style: const TextStyle(
-                        color: Colors.white, 
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16
-                      ),
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16),
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
@@ -206,7 +227,8 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                       const SizedBox(width: 4),
-                      const Icon(Icons.monetization_on, color: Color(0xFFFFD700), size: 16),
+                      const Icon(Icons.monetization_on,
+                          color: Color(0xFFFFD700), size: 16),
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -215,13 +237,13 @@ class _HomePageState extends State<HomePage> {
                       Text(
                         '$streak Days',
                         style: const TextStyle(
-                          color: Colors.orangeAccent,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold
-                        ),
+                            color: Colors.orangeAccent,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(width: 4),
-                      const Icon(Icons.local_fire_department, color: Colors.orangeAccent, size: 14),
+                      const Icon(Icons.local_fire_department,
+                          color: Colors.orangeAccent, size: 14),
                     ],
                   ),
                 ],
@@ -234,22 +256,12 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-// =============================================================================
-// 🚧 PLACEHOLDER WIDGETS
-// =============================================================================
-
-class _WorkoutView extends StatelessWidget {
-  const _WorkoutView();
-  @override
-  Widget build(BuildContext context) {
-    return const Center(child: Text('⚔️ WORKOUT MENU HERE', style: TextStyle(color: Colors.white)));
-  }
-}
-
 class _ShopView extends StatelessWidget {
   const _ShopView();
   @override
   Widget build(BuildContext context) {
-    return const Center(child: Text('💎 REWARDS SHOP HERE', style: TextStyle(color: Colors.white)));
+    return const Center(
+        child: Text('💎 REWARDS SHOP HERE',
+            style: TextStyle(color: Colors.white)));
   }
 }

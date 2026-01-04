@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../core/theme/app_theme.dart';
+// 🛠️ FIX: Menggunakan absolute path
+import 'package:workout_tracker/core/theme/app_theme.dart';
 
 class TaskView extends StatefulWidget {
   const TaskView({super.key});
@@ -13,15 +14,17 @@ class _TaskViewState extends State<TaskView> {
   final String _userId = Supabase.instance.client.auth.currentUser!.id;
   bool _isGenerating = false;
   final Set<String> _processingTaskIds = {};
-  
-  // ⚡ STATE FILTER
-  String _selectedFrequency = 'All'; 
-  
-  // ⚡ STATE BARU: Hide Completed
-  // Kalau true, tugas yang sudah dicentang akan hilang dari list
+
+  String _selectedFrequency = 'All';
   bool _hideCompleted = false;
 
-  // 📡 STREAM: Filter Logic Updated (Frequency + Hide Completed)
+  @override
+  void initState() {
+    super.initState();
+    // Auto-check reset saat dibuka
+    _handleRefresh();
+  }
+
   Stream<List<Map<String, dynamic>>> _getTasksStream() {
     return Supabase.instance.client
         .from('tasks')
@@ -31,19 +34,81 @@ class _TaskViewState extends State<TaskView> {
         .order('priority', ascending: true)
         .map((data) {
           var filtered = data;
-
-          // 1. Filter Frequency
           if (_selectedFrequency != 'All') {
-            filtered = filtered.where((task) => task['frequency'] == _selectedFrequency).toList();
+            filtered = filtered
+                .where((task) => task['frequency'] == _selectedFrequency)
+                .toList();
           }
-
-          // 2. Filter Visibility (Sembunyikan yang selesai)
           if (_hideCompleted) {
-            filtered = filtered.where((task) => task['is_completed'] == false).toList();
+            filtered = filtered
+                .where((task) => task['is_completed'] == false)
+                .toList();
           }
-
           return filtered;
         });
+  }
+
+  // ===========================================================================
+  // 🌅 SMART MANUAL RESET / REFRESH LOGIC
+  // ===========================================================================
+
+  Future<void> _handleRefresh() async {
+    try {
+      final response = await Supabase.instance.client
+          .from('tasks')
+          .select()
+          .eq('user_id', _userId)
+          .eq('frequency', 'Daily')
+          .eq('is_completed', true);
+
+      final now = DateTime.now();
+
+      final List<dynamic> staleTasks = response.where((task) {
+        final completedAtStr = task['last_completed_at'];
+        if (completedAtStr == null) return false;
+
+        final completedAt = DateTime.parse(completedAtStr).toLocal();
+
+        final isSameDay =
+            completedAt.year == now.year &&
+            completedAt.month == now.month &&
+            completedAt.day == now.day;
+
+        return !isSameDay;
+      }).toList();
+
+      if (staleTasks.isEmpty) {
+        return;
+      }
+
+      final List<String> idsToReset = staleTasks
+          .map((t) => t['id'] as String)
+          .toList();
+
+      // 🛠️ FIX ERROR '.in_': Ganti dengan .filter('col', 'in', list)
+      // Ini cara paling universal dan aman di Supabase Flutter SDK
+      await Supabase.instance.client
+          .from('tasks')
+          .update({
+            'is_completed': false,
+            'current_value': 0,
+            'last_completed_at': null,
+          })
+          .filter('id', 'in', idsToReset); // ✅ PENGGANTI .in_()
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              "New Day Started! 🌅 Reset ${staleTasks.length} tasks.",
+            ),
+            backgroundColor: AppTheme.secondaryColor,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("Error refreshing tasks: $e");
+    }
   }
 
   // ===========================================================================
@@ -52,27 +117,37 @@ class _TaskViewState extends State<TaskView> {
 
   void _showTaskForm({Map<String, dynamic>? taskToEdit}) {
     final bool isEditing = taskToEdit != null;
-    
-    final titleController = TextEditingController(text: isEditing ? taskToEdit['title'] : '');
-    final targetController = TextEditingController(text: isEditing ? taskToEdit['target_value'].toString() : '1');
-    final unitController = TextEditingController(text: isEditing ? taskToEdit['unit'] : 'x');
-    
+
+    final titleController = TextEditingController(
+      text: isEditing ? taskToEdit['title'] : '',
+    );
+    final targetController = TextEditingController(
+      text: isEditing ? taskToEdit['target_value'].toString() : '1',
+    );
+    final unitController = TextEditingController(
+      text: isEditing ? taskToEdit['unit'] : 'x',
+    );
+
     String selectedCategory = isEditing ? taskToEdit['category'] : 'Intellect';
     String selectedPriority = isEditing ? taskToEdit['priority'] : 'Medium';
-    
+
     String selectedFrequency;
     if (isEditing) {
       selectedFrequency = taskToEdit['frequency'];
     } else {
-      selectedFrequency = _selectedFrequency == 'All' ? 'Daily' : _selectedFrequency;
+      selectedFrequency = _selectedFrequency == 'All'
+          ? 'Daily'
+          : _selectedFrequency;
     }
 
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E1E),
-        title: Text(isEditing ? 'Edit Mission' : 'New Custom Mission', 
-            style: const TextStyle(color: Colors.white)),
+        title: Text(
+          isEditing ? 'Edit Mission' : 'New Custom Mission',
+          style: const TextStyle(color: Colors.white),
+        ),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -83,7 +158,9 @@ class _TaskViewState extends State<TaskView> {
                 decoration: const InputDecoration(
                   labelText: 'Mission Title',
                   labelStyle: TextStyle(color: Colors.grey),
-                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
+                  enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.grey),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -94,7 +171,10 @@ class _TaskViewState extends State<TaskView> {
                       controller: targetController,
                       keyboardType: TextInputType.number,
                       style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(labelText: 'Target', labelStyle: TextStyle(color: Colors.grey)),
+                      decoration: const InputDecoration(
+                        labelText: 'Target',
+                        labelStyle: TextStyle(color: Colors.grey),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -102,7 +182,10 @@ class _TaskViewState extends State<TaskView> {
                     child: TextField(
                       controller: unitController,
                       style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(labelText: 'Unit', labelStyle: TextStyle(color: Colors.grey)),
+                      decoration: const InputDecoration(
+                        labelText: 'Unit',
+                        labelStyle: TextStyle(color: Colors.grey),
+                      ),
                     ),
                   ),
                 ],
@@ -112,9 +195,13 @@ class _TaskViewState extends State<TaskView> {
                 value: selectedCategory,
                 dropdownColor: Colors.grey[900],
                 style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(labelText: 'Category', labelStyle: TextStyle(color: Colors.grey)),
+                decoration: const InputDecoration(
+                  labelText: 'Category',
+                  labelStyle: TextStyle(color: Colors.grey),
+                ),
                 items: ['Intellect', 'Vitality', 'Wealth', 'Charisma']
-                    .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                    .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                    .toList(),
                 onChanged: (val) => selectedCategory = val!,
               ),
               const SizedBox(height: 16),
@@ -122,9 +209,13 @@ class _TaskViewState extends State<TaskView> {
                 value: selectedFrequency,
                 dropdownColor: Colors.grey[900],
                 style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(labelText: 'Frequency', labelStyle: TextStyle(color: Colors.grey)),
+                decoration: const InputDecoration(
+                  labelText: 'Frequency',
+                  labelStyle: TextStyle(color: Colors.grey),
+                ),
                 items: ['Daily', 'Weekly', 'OneTime']
-                    .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                    .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                    .toList(),
                 onChanged: (val) => selectedFrequency = val!,
               ),
               const SizedBox(height: 16),
@@ -132,9 +223,13 @@ class _TaskViewState extends State<TaskView> {
                 value: selectedPriority,
                 dropdownColor: Colors.grey[900],
                 style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(labelText: 'Priority', labelStyle: TextStyle(color: Colors.grey)),
+                decoration: const InputDecoration(
+                  labelText: 'Priority',
+                  labelStyle: TextStyle(color: Colors.grey),
+                ),
                 items: ['Low', 'Medium', 'High']
-                    .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                    .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                    .toList(),
                 onChanged: (val) => selectedPriority = val!,
               ),
             ],
@@ -146,35 +241,46 @@ class _TaskViewState extends State<TaskView> {
             child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+            ),
             onPressed: () async {
               if (titleController.text.isEmpty) return;
               Navigator.pop(ctx);
-              
+
               final taskData = {
                 'user_id': _userId,
                 'title': titleController.text,
                 'category': selectedCategory,
                 'priority': selectedPriority,
-                'frequency': selectedFrequency, 
+                'frequency': selectedFrequency,
                 'target_value': int.tryParse(targetController.text) ?? 1,
                 'unit': unitController.text,
               };
 
               try {
                 if (isEditing) {
-                  await Supabase.instance.client.from('tasks').update(taskData).eq('id', taskToEdit['id']);
+                  await Supabase.instance.client
+                      .from('tasks')
+                      .update(taskData)
+                      .eq('id', taskToEdit['id']);
                 } else {
                   taskData['current_value'] = 0;
                   taskData['is_completed'] = false;
                   await Supabase.instance.client.from('tasks').insert(taskData);
                 }
-                
+
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(isEditing ? 'Mission Updated!' : 'Mission Created!'), backgroundColor: AppTheme.secondaryColor)
+                    SnackBar(
+                      content: Text(
+                        isEditing ? 'Mission Updated!' : 'Mission Created!',
+                      ),
+                      backgroundColor: AppTheme.secondaryColor,
+                    ),
                   );
-                  if (_selectedFrequency != 'All' && _selectedFrequency != selectedFrequency) {
+                  if (_selectedFrequency != 'All' &&
+                      _selectedFrequency != selectedFrequency) {
                     setState(() => _selectedFrequency = selectedFrequency);
                   }
                 }
@@ -182,7 +288,10 @@ class _TaskViewState extends State<TaskView> {
                 debugPrint(e.toString());
               }
             },
-            child: Text(isEditing ? 'Save' : 'Create', style: const TextStyle(color: Colors.black)),
+            child: Text(
+              isEditing ? 'Save' : 'Create',
+              style: const TextStyle(color: Colors.black),
+            ),
           ),
         ],
       ),
@@ -198,7 +307,10 @@ class _TaskViewState extends State<TaskView> {
         children: [
           ListTile(
             leading: const Icon(Icons.edit, color: Colors.blueAccent),
-            title: const Text('Edit Mission', style: TextStyle(color: Colors.white)),
+            title: const Text(
+              'Edit Mission',
+              style: TextStyle(color: Colors.white),
+            ),
             onTap: () {
               Navigator.pop(ctx);
               _showTaskForm(taskToEdit: task);
@@ -206,14 +318,23 @@ class _TaskViewState extends State<TaskView> {
           ),
           ListTile(
             leading: const Icon(Icons.delete, color: Colors.redAccent),
-            title: const Text('Delete Mission', style: TextStyle(color: Colors.redAccent)),
+            title: const Text(
+              'Delete Mission',
+              style: TextStyle(color: Colors.redAccent),
+            ),
             onTap: () async {
               Navigator.pop(ctx);
-              await Supabase.instance.client.from('tasks').delete().eq('id', task['id']);
+              await Supabase.instance.client
+                  .from('tasks')
+                  .delete()
+                  .eq('id', task['id']);
               if (mounted) {
-                 ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Mission deleted'), backgroundColor: Colors.grey)
-                 );
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Mission deleted'),
+                    backgroundColor: Colors.grey,
+                  ),
+                );
               }
             },
           ),
@@ -225,7 +346,9 @@ class _TaskViewState extends State<TaskView> {
   Future<void> _generateDailyTasks() async {
     setState(() => _isGenerating = true);
     try {
-      String targetFreq = _selectedFrequency == 'All' ? 'Daily' : _selectedFrequency;
+      String targetFreq = _selectedFrequency == 'All'
+          ? 'Daily'
+          : _selectedFrequency;
 
       final templates = await Supabase.instance.client
           .from('task_library')
@@ -241,7 +364,7 @@ class _TaskViewState extends State<TaskView> {
           'title': t['title'],
           'category': t['category'],
           'priority': t['default_priority'],
-          'frequency': targetFreq, 
+          'frequency': targetFreq,
           'target_value': t['default_target_value'],
           'unit': t['default_unit'],
           'current_value': 0,
@@ -251,11 +374,17 @@ class _TaskViewState extends State<TaskView> {
       await Supabase.instance.client.from('tasks').insert(newTasks);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Generated ${newTasks.length} $targetFreq missions!"), backgroundColor: AppTheme.secondaryColor),
+          SnackBar(
+            content: Text("Generated ${newTasks.length} $targetFreq missions!"),
+            backgroundColor: AppTheme.secondaryColor,
+          ),
         );
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'), backgroundColor: Colors.red));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$e'), backgroundColor: Colors.red),
+        );
     } finally {
       setState(() => _isGenerating = false);
     }
@@ -273,24 +402,40 @@ class _TaskViewState extends State<TaskView> {
     final bool isCompleted = value;
 
     try {
-      await Supabase.instance.client.from('tasks').update({
-        'is_completed': isCompleted,
-        'current_value': isCompleted ? task['target_value'] : 0, 
-        'last_completed_at': isCompleted ? DateTime.now().toIso8601String() : null,
-      }).eq('id', taskId); 
+      await Supabase.instance.client
+          .from('tasks')
+          .update({
+            'is_completed': isCompleted,
+            'current_value': isCompleted ? task['target_value'] : 0,
+            'last_completed_at': isCompleted
+                ? DateTime.now().toIso8601String()
+                : null,
+          })
+          .eq('id', taskId);
 
       int xpReward = 0;
       int pointsReward = 0;
-      
+
       int multiplier = task['frequency'] == 'Weekly' ? 2 : 1;
 
       switch (priority) {
-        case 'High': xpReward = 50 * multiplier; pointsReward = 15 * multiplier; break;
-        case 'Medium': xpReward = 30 * multiplier; pointsReward = 10 * multiplier; break;
-        case 'Low': xpReward = 10 * multiplier; pointsReward = 5 * multiplier; break;
-        default: xpReward = 20 * multiplier; pointsReward = 5 * multiplier;
+        case 'High':
+          xpReward = 50 * multiplier;
+          pointsReward = 15 * multiplier;
+          break;
+        case 'Medium':
+          xpReward = 30 * multiplier;
+          pointsReward = 10 * multiplier;
+          break;
+        case 'Low':
+          xpReward = 10 * multiplier;
+          pointsReward = 5 * multiplier;
+          break;
+        default:
+          xpReward = 20 * multiplier;
+          pointsReward = 5 * multiplier;
       }
-      
+
       if (!isCompleted) {
         xpReward = -xpReward;
         pointsReward = -pointsReward;
@@ -307,14 +452,21 @@ class _TaskViewState extends State<TaskView> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(isCompleted ? "Completed! +$xpReward XP" : "Undone. $xpReward XP"),
-            backgroundColor: isCompleted ? AppTheme.secondaryColor : Colors.grey,
+            content: Text(
+              isCompleted ? "Completed! +$xpReward XP" : "Undone. $xpReward XP",
+            ),
+            backgroundColor: isCompleted
+                ? AppTheme.secondaryColor
+                : Colors.grey,
             duration: const Duration(seconds: 1),
           ),
         );
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'), backgroundColor: Colors.red));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$e'), backgroundColor: Colors.red),
+        );
     } finally {
       if (mounted) setState(() => _processingTaskIds.remove(taskId));
     }
@@ -323,12 +475,14 @@ class _TaskViewState extends State<TaskView> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent, 
+      backgroundColor: Colors.transparent,
       body: Column(
         children: [
-          // ⚡ HEADER FILTER: All, Daily, Weekly + Eye Toggle
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16.0,
+              vertical: 8.0,
+            ),
             child: Row(
               children: [
                 _buildFilterChip('All'),
@@ -336,10 +490,7 @@ class _TaskViewState extends State<TaskView> {
                 _buildFilterChip('Daily'),
                 const SizedBox(width: 8),
                 _buildFilterChip('Weekly'),
-                
-                const Spacer(), // Dorong tombol mata ke paling kanan
-                
-                // 👁️ TOMBOL HIDE/SHOW COMPLETED
+                const Spacer(),
                 IconButton(
                   icon: Icon(
                     _hideCompleted ? Icons.visibility_off : Icons.visibility,
@@ -355,38 +506,52 @@ class _TaskViewState extends State<TaskView> {
               ],
             ),
           ),
-          
-          // LIST TASK
           Expanded(
-            child: StreamBuilder<List<Map<String, dynamic>>>(
-              stream: _getTasksStream(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor));
-                }
-                
-                if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                  return _buildEmptyState();
-                }
+            child: RefreshIndicator(
+              onRefresh: _handleRefresh,
+              color: AppTheme.primaryColor,
+              backgroundColor: const Color(0xFF1E1E1E),
+              child: StreamBuilder<List<Map<String, dynamic>>>(
+                stream: _getTasksStream(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(
+                      child: CircularProgressIndicator(
+                        color: AppTheme.primaryColor,
+                      ),
+                    );
+                  }
+                  if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                    return ListView(
+                      children: [
+                        SizedBox(
+                          height: MediaQuery.of(context).size.height * 0.7,
+                          child: _buildEmptyState(),
+                        ),
+                      ],
+                    );
+                  }
 
-                final tasks = snapshot.data!;
-                tasks.sort((a, b) {
-                  if (a['is_completed'] != b['is_completed']) return a['is_completed'] ? 1 : -1;
-                  final pA = _priorityScore(a['priority']);
-                  final pB = _priorityScore(b['priority']);
-                  return pB.compareTo(pA); 
-                });
+                  final tasks = snapshot.data!;
+                  tasks.sort((a, b) {
+                    if (a['is_completed'] != b['is_completed'])
+                      return a['is_completed'] ? 1 : -1;
+                    final pA = _priorityScore(a['priority']);
+                    final pB = _priorityScore(b['priority']);
+                    return pB.compareTo(pA);
+                  });
 
-                return ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: tasks.length,
-                  separatorBuilder: (ctx, i) => const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final task = tasks[index];
-                    return _buildTaskCard(task);
-                  },
-                );
-              },
+                  return ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: tasks.length,
+                    separatorBuilder: (ctx, i) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final task = tasks[index];
+                      return _buildTaskCard(task);
+                    },
+                  );
+                },
+              ),
             ),
           ),
         ],
@@ -435,13 +600,17 @@ class _TaskViewState extends State<TaskView> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.assignment_turned_in_outlined, size: 64, color: Colors.grey[800]),
+          Icon(
+            Icons.assignment_turned_in_outlined,
+            size: 64,
+            color: Colors.grey[800],
+          ),
           const SizedBox(height: 16),
           Text(
-            _hideCompleted 
-              ? "All active $_selectedFrequency missions cleared! 🎉" 
-              : "No $_selectedFrequency Missions Active", 
-            style: const TextStyle(color: Colors.grey)
+            _hideCompleted
+                ? "All active $_selectedFrequency missions cleared! 🎉"
+                : "No $_selectedFrequency Missions Active",
+            style: const TextStyle(color: Colors.grey),
           ),
           const SizedBox(height: 24),
           _isGenerating
@@ -449,7 +618,9 @@ class _TaskViewState extends State<TaskView> {
               : ElevatedButton.icon(
                   onPressed: _generateDailyTasks,
                   icon: const Icon(Icons.auto_awesome, color: Colors.black),
-                  label: Text("Generate ${_selectedFrequency == 'All' ? 'Daily' : _selectedFrequency} Tasks"),
+                  label: Text(
+                    "Generate ${_selectedFrequency == 'All' ? 'Daily' : _selectedFrequency} Tasks",
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.primaryColor,
                     foregroundColor: Colors.black,
@@ -465,7 +636,7 @@ class _TaskViewState extends State<TaskView> {
     final String taskId = task['id'];
     final bool isProcessing = _processingTaskIds.contains(taskId);
     final String priority = task['priority'] ?? 'Medium';
-    
+
     Color badgeColor = Colors.orange;
     if (priority == 'High') badgeColor = Colors.redAccent;
     if (priority == 'Low') badgeColor = Colors.green;
@@ -477,11 +648,16 @@ class _TaskViewState extends State<TaskView> {
         decoration: BoxDecoration(
           color: const Color(0xFF1E1E1E),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: isCompleted ? Colors.transparent : Colors.white10),
+          border: Border.all(
+            color: isCompleted ? Colors.transparent : Colors.white10,
+          ),
         ),
         child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 8,
+          ),
+
           onLongPress: () {
             if (isCompleted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -495,20 +671,29 @@ class _TaskViewState extends State<TaskView> {
               _showTaskOptions(task);
             }
           },
-          
-          leading: isProcessing 
-            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primaryColor))
-            : Transform.scale(
-                scale: 1.2,
-                child: Checkbox(
-                  value: isCompleted,
-                  activeColor: AppTheme.secondaryColor,
-                  checkColor: Colors.black,
-                  side: BorderSide(color: Colors.grey[600]!, width: 2),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                  onChanged: (val) => _toggleTask(task, val),
+
+          leading: isProcessing
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppTheme.primaryColor,
+                  ),
+                )
+              : Transform.scale(
+                  scale: 1.2,
+                  child: Checkbox(
+                    value: isCompleted,
+                    activeColor: AppTheme.secondaryColor,
+                    checkColor: Colors.black,
+                    side: BorderSide(color: Colors.grey[600]!, width: 2),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    onChanged: (val) => _toggleTask(task, val),
+                  ),
                 ),
-              ),
           title: Text(
             task['title'] ?? 'Untitled',
             style: TextStyle(
@@ -524,27 +709,49 @@ class _TaskViewState extends State<TaskView> {
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: badgeColor.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(4),
                     border: Border.all(color: badgeColor.withOpacity(0.5)),
                   ),
-                  child: Text(priority.toUpperCase(), style: TextStyle(color: badgeColor, fontSize: 8, fontWeight: FontWeight.bold)),
+                  child: Text(
+                    priority.toUpperCase(),
+                    style: TextStyle(
+                      color: badgeColor,
+                      fontSize: 8,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 8),
                 if (_selectedFrequency == 'All') ...[
                   Container(
                     margin: const EdgeInsets.only(right: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.blueAccent.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(4),
                     ),
-                    child: Text(task['frequency'] ?? 'Daily', style: const TextStyle(color: Colors.blueAccent, fontSize: 8)),
+                    child: Text(
+                      task['frequency'] ?? 'Daily',
+                      style: const TextStyle(
+                        color: Colors.blueAccent,
+                        fontSize: 8,
+                      ),
+                    ),
                   ),
                 ],
-                Text("${task['target_value']} ${task['unit']}", style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+                Text(
+                  "${task['target_value']} ${task['unit']}",
+                  style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                ),
               ],
             ),
           ),
@@ -557,10 +764,22 @@ class _TaskViewState extends State<TaskView> {
   Widget _getCategoryIcon(String? category) {
     IconData icon = Icons.extension;
     Color color = Colors.grey;
-    if (category == 'Intellect') { icon = Icons.psychology; color = Colors.blue; }
-    if (category == 'Vitality') { icon = Icons.favorite; color = Colors.red; }
-    if (category == 'Wealth') { icon = Icons.attach_money; color = Colors.green; }
-    if (category == 'Charisma') { icon = Icons.record_voice_over; color = Colors.purple; }
+    if (category == 'Intellect') {
+      icon = Icons.psychology;
+      color = Colors.blue;
+    }
+    if (category == 'Vitality') {
+      icon = Icons.favorite;
+      color = Colors.red;
+    }
+    if (category == 'Wealth') {
+      icon = Icons.attach_money;
+      color = Colors.green;
+    }
+    if (category == 'Charisma') {
+      icon = Icons.record_voice_over;
+      color = Colors.purple;
+    }
     return Icon(icon, color: color.withOpacity(0.4));
   }
 }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:intl/intl.dart';
 import 'package:workout_tracker/core/theme/app_theme.dart';
-import 'package:workout_tracker/features/tracker/widgets/stat_radar_chart.dart';
 
 class DashboardView extends StatefulWidget {
   const DashboardView({super.key});
@@ -13,99 +13,121 @@ class DashboardView extends StatefulWidget {
 class _DashboardViewState extends State<DashboardView> {
   final String _userId = Supabase.instance.client.auth.currentUser!.id;
 
-  // State untuk menyimpan statistik RPG
-  Map<String, double> _rpgStats = {
-    'STR': 0.1,
-    'INT': 0.1,
-    'VIT': 0.1,
-    'DEX': 0.1,
-    'CHA': 0.1,
-  };
-
-  // State level visual (untuk teks Lv. 1, Lv. 5, dll)
-  Map<String, int> _rpgLevels = {
-    'STR': 1,
-    'INT': 1,
-    'VIT': 1,
-    'DEX': 1,
-    'CHA': 1
-  };
+  // State untuk Data XP Mingguan
+  List<Map<String, dynamic>> _weeklyXpData = [];
+  bool _isLoadingStats = true;
 
   @override
   void initState() {
     super.initState();
-    _calculateRealStats(); // Hitung statistik saat halaman dibuka
+    _fetchWeeklyXpStats();
   }
 
-  // 🧠 RPG ENGINE: Hitung statistik berdasarkan riwayat aktivitas
-  Future<void> _calculateRealStats() async {
+  // 📊 HITUNG XP HARIAN (7 HARI TERAKHIR)
+  Future<void> _fetchWeeklyXpStats() async {
     try {
-      // 1. Ambil Hitungan Task yang Selesai per Kategori
-      final tasksResponse = await Supabase.instance.client
-          .from('tasks')
-          .select('category')
+      final now = DateTime.now();
+      // Ambil data 7 hari ke belakang (termasuk hari ini)
+      final startDate = now.subtract(const Duration(days: 6));
+
+      final response = await Supabase.instance.client
+          .from('point_logs')
+          .select('created_at, xp_change')
           .eq('user_id', _userId)
-          .eq('is_completed', true);
+          .gte('created_at',
+              DateFormat('yyyy-MM-dd').format(startDate)) // Filter tanggal
+          .gt('xp_change',
+              0) // Hanya ambil XP positif (gain), hukuman ga usah dihitung di grafik produktivitas
+          .order('created_at', ascending: true);
 
-      // 2. Ambil Hitungan Workout yang Selesai
-      final workoutsResponse = await Supabase.instance.client
-          .from('workouts')
-          .select('id') // Cukup ID aja
-          .eq('user_id', _userId)
-          .eq('status', 'completed');
-
-      // 3. Hitung Total Poin Mentah
-      int strRaw = workoutsResponse.length; // 1 Workout = 1 Poin STR
-      int intRaw = 0;
-      int vitRaw = 0;
-      int chaRaw = 0;
-      int dexRaw = 0;
-
-      for (var t in tasksResponse) {
-        final cat = t['category'];
-        if (cat == 'Intellect')
-          intRaw++;
-        else if (cat == 'Vitality')
-          vitRaw++;
-        else if (cat == 'Charisma')
-          chaRaw++;
-        else if (cat == 'Wealth') dexRaw++; // Wealth masuk ke DEX
+      // Siapkan kerangka data 7 hari (biar kalau 0 tetap muncul)
+      Map<String, int> xpPerDay = {};
+      for (int i = 0; i < 7; i++) {
+        final date = now.subtract(Duration(days: 6 - i));
+        final dateKey = DateFormat('yyyy-MM-dd').format(date);
+        xpPerDay[dateKey] = 0;
       }
 
-      // 4. Normalisasi Data (0.0 - 1.0) untuk Radar Chart
-      // Anggap Level 10 (Max Stats) butuh 50 poin aktivitas.
-      double normalize(int val) {
-        double res = val / 50.0;
-        return res > 1.0
-            ? 1.0
-            : (res < 0.1 ? 0.1 : res); // Min 0.1 biar grafik gak hilang
+      // Isi data dari database
+      for (var log in response) {
+        final dateStr = DateTime.parse(log['created_at'])
+            .toLocal()
+            .toString()
+            .split(' ')[0]; // Ambil YYYY-MM-DD
+        if (xpPerDay.containsKey(dateStr)) {
+          xpPerDay[dateStr] =
+              (xpPerDay[dateStr] ?? 0) + (log['xp_change'] as int);
+        }
       }
 
-      // Hitung Level Visual (Simple: Poin / 5)
-      int calcLevel(int val) => (val ~/ 5) + 1;
+      // Konversi ke List untuk UI
+      List<Map<String, dynamic>> chartData = [];
+      xpPerDay.forEach((key, value) {
+        final date = DateTime.parse(key);
+        chartData.add({
+          'day': DateFormat('E').format(date), // Mon, Tue
+          'xp': value,
+          'is_today': DateFormat('yyyy-MM-dd').format(now) == key,
+        });
+      });
 
       if (mounted) {
         setState(() {
-          _rpgStats = {
-            'STR': normalize(strRaw),
-            'INT': normalize(intRaw),
-            'VIT': normalize(vitRaw),
-            'DEX': normalize(dexRaw),
-            'CHA': normalize(chaRaw),
-          };
-
-          _rpgLevels = {
-            'STR': calcLevel(strRaw),
-            'INT': calcLevel(intRaw),
-            'VIT': calcLevel(vitRaw),
-            'DEX': calcLevel(dexRaw),
-            'CHA': calcLevel(chaRaw),
-          };
+          _weeklyXpData = chartData;
+          _isLoadingStats = false;
         });
       }
     } catch (e) {
-      debugPrint("Error calculating stats: $e");
+      debugPrint("Error fetching stats: $e");
+      if (mounted) setState(() => _isLoadingStats = false);
     }
+  }
+
+  // ✏️ EDIT USERNAME DIALOG
+  void _showEditProfileDialog(String currentName) {
+    final controller = TextEditingController(text: currentName);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title:
+            const Text("Edit Codename", style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: controller,
+          style: const TextStyle(color: Colors.white),
+          maxLength: 12,
+          decoration: const InputDecoration(
+            hintText: "Enter new name",
+            hintStyle: TextStyle(color: Colors.grey),
+            enabledBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Colors.grey)),
+            counterStyle: TextStyle(color: Colors.grey),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryColor),
+            onPressed: () async {
+              if (controller.text.trim().isEmpty) return;
+              Navigator.pop(ctx);
+
+              // Update ke Database
+              await Supabase.instance.client.from('profiles').update(
+                  {'username': controller.text.trim()}).eq('id', _userId);
+
+              // Refresh halaman biar nama berubah
+              setState(() {});
+            },
+            child: const Text("Save", style: TextStyle(color: Colors.black)),
+          ),
+        ],
+      ),
+    );
   }
 
   Stream<List<Map<String, dynamic>>> _getProfileStream() {
@@ -137,7 +159,7 @@ class _DashboardViewState extends State<DashboardView> {
         final int streakCurrent = profile['streak_current'] ?? 0;
 
         return RefreshIndicator(
-          onRefresh: _calculateRealStats, // Tarik layar untuk refresh statistik
+          onRefresh: _fetchWeeklyXpStats,
           color: AppTheme.primaryColor,
           backgroundColor: const Color(0xFF1E1E1E),
           child: SingleChildScrollView(
@@ -146,53 +168,38 @@ class _DashboardViewState extends State<DashboardView> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // 1. CHARACTER STATUS
+                // 1. CHARACTER STATUS (With Edit Button)
                 _buildIdentitySection(profile, level, currentXp),
 
                 const SizedBox(height: 30),
 
-                // 2. RADAR CHART (REAL DATA) 🕸️
-                const Text(
-                  "ATTRIBUTE HEXAGON",
-                  style: TextStyle(
-                      color: AppTheme.primaryColor,
-                      fontSize: 12,
-                      letterSpacing: 2,
-                      fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 20),
-                SizedBox(
-                  height: 220,
-                  child: StatRadarChart(
-                    data: _rpgStats,
-                    activeColor: AppTheme.primaryColor,
+                // 2. XP HISTORY CHART (Pengganti Radar Chart) 📊
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: EdgeInsets.only(left: 8.0, bottom: 12.0),
+                    child: Text(
+                      "WEEKLY PERFORMANCE (XP)",
+                      style: TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                          letterSpacing: 1.5,
+                          fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ),
 
-                const SizedBox(height: 30),
-
-                // 3. VISUAL ATTRIBUTES (Dengan Icon, bukan Image Asset biar aman)
-                // Menampilkan Level Stat yang sudah dihitung
-                SizedBox(
-                  height: 100,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildAttributeCard('STR', 'Lv. ${_rpgLevels['STR']}',
-                          Icons.fitness_center, Colors.redAccent),
-                      _buildAttributeCard('INT', 'Lv. ${_rpgLevels['INT']}',
-                          Icons.psychology, Colors.blueAccent),
-                      _buildAttributeCard('VIT', 'Lv. ${_rpgLevels['VIT']}',
-                          Icons.favorite, Colors.greenAccent),
-                      _buildAttributeCard('DEX', 'Lv. ${_rpgLevels['DEX']}',
-                          Icons.flash_on, Colors.purpleAccent),
-                    ],
-                  ),
-                ),
+                _isLoadingStats
+                    ? const SizedBox(
+                        height: 180,
+                        child: Center(
+                            child: CircularProgressIndicator(
+                                color: AppTheme.primaryColor)))
+                    : _buildXpHistoryChart(),
 
                 const SizedBox(height: 30),
 
-                // 4. STATS ROW
+                // 3. STATS ROW
                 Row(
                   children: [
                     Expanded(
@@ -207,6 +214,22 @@ class _DashboardViewState extends State<DashboardView> {
                   ],
                 ),
 
+                const SizedBox(height: 24),
+
+                // 4. Activity Log (Simple Heatmap / Placeholder)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'CONSISTENCY LOG',
+                    style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _buildCustomHeatmap(),
+
                 const SizedBox(height: 80),
               ],
             ),
@@ -216,50 +239,99 @@ class _DashboardViewState extends State<DashboardView> {
     );
   }
 
-  // WIDGET: Kartu Atribut dengan Icon
-  Widget _buildAttributeCard(
-      String label, String value, IconData icon, Color color) {
+  // WIDGET: Simple Bar Chart Manual
+  Widget _buildXpHistoryChart() {
+    // Cari nilai max untuk skala grafik
+    int maxXp = 100; // Default min scale
+    for (var data in _weeklyXpData) {
+      if (data['xp'] > maxXp) maxXp = data['xp'];
+    }
+
     return Container(
-      width: 70,
-      padding: const EdgeInsets.all(8),
+      height: 180,
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-          color: const Color(0xFF1E1E1E),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.3)),
-          boxShadow: [
-            BoxShadow(
-              color: color.withOpacity(0.1),
-              blurRadius: 8,
-              spreadRadius: 0,
-            )
-          ]),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, color: color, size: 28),
-          const SizedBox(height: 8),
-          Text(label,
-              style: TextStyle(
-                  color: color, fontWeight: FontWeight.bold, fontSize: 12)),
-          Text(value,
-              style: const TextStyle(color: Colors.white, fontSize: 10)),
-        ],
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        crossAxisAlignment: CrossAxisAlignment.end, // Bar tumbuh dari bawah
+        children: _weeklyXpData.map((data) {
+          final int xp = data['xp'];
+          final String day = data['day'];
+          final bool isToday = data['is_today'];
+
+          // Hitung tinggi relatif (0.0 - 1.0)
+          double barHeightFactor = xp / maxXp;
+          if (barHeightFactor < 0.05 && xp > 0)
+            barHeightFactor = 0.05; // Min height biar kelihatan dikit
+
+          return Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              // Label XP (muncul kalau ada XP)
+              if (xp > 0)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4.0),
+                  child: Text(
+                    "$xp",
+                    style: TextStyle(
+                        color: isToday ? AppTheme.primaryColor : Colors.white70,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold),
+                  ),
+                ),
+
+              // Batang Grafik
+              Container(
+                width: 12,
+                height: 100 * barHeightFactor, // Max height 100 pixel
+                decoration: BoxDecoration(
+                  color: isToday ? AppTheme.primaryColor : Colors.grey[700],
+                  borderRadius: BorderRadius.circular(4),
+                  boxShadow: isToday
+                      ? [
+                          BoxShadow(
+                              color: AppTheme.primaryColor.withOpacity(0.5),
+                              blurRadius: 10,
+                              spreadRadius: 1)
+                        ]
+                      : [],
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              // Label Hari
+              Text(
+                day,
+                style: TextStyle(
+                  color: isToday ? Colors.white : Colors.grey,
+                  fontSize: 10,
+                  fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ],
+          );
+        }).toList(),
       ),
     );
   }
 
   Widget _buildIdentitySection(
       Map<String, dynamic> profile, int level, int xp) {
+    // Ambil nama (prioritas: username -> full_name -> Player)
     String username = profile['username'] ?? profile['full_name'] ?? 'Player';
-    username = username.split('@')[0];
+    // Kalau ada email di username, ambil depannya aja (opsional, tergantung preferensi)
+    // username = username.contains('@') ? username.split('@')[0] : username;
 
     String rank = "Novice";
     if (level > 10) rank = "Apprentice";
     if (level > 30) rank = "Adept";
     if (level > 50) rank = "Master";
 
-    // Hitung progress bar level (0.0 - 1.0)
-    // Asumsi per level butuh 1000 XP (atau bisa ambil dari level rules nanti)
     double progress = (xp % 1000) / 1000;
 
     return Column(
@@ -279,14 +351,31 @@ class _DashboardViewState extends State<DashboardView> {
           ),
         ),
         const SizedBox(height: 12),
-        Text(
-          username.toUpperCase(),
-          style: const TextStyle(
-              color: Colors.white,
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 1.5),
+
+        // NAMA & EDIT BUTTON
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              username.toUpperCase(),
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.5),
+            ),
+            const SizedBox(width: 8),
+            // Tombol Edit Kecil
+            InkWell(
+              onTap: () => _showEditProfileDialog(username),
+              child: Padding(
+                padding: const EdgeInsets.all(4.0),
+                child: Icon(Icons.edit, size: 16, color: Colors.grey[600]),
+              ),
+            )
+          ],
         ),
+
         Text(
           "$rank Lvl. $level",
           style: TextStyle(
@@ -355,6 +444,38 @@ class _DashboardViewState extends State<DashboardView> {
             ],
           )
         ],
+      ),
+    );
+  }
+
+  Widget _buildCustomHeatmap() {
+    return Container(
+      height: 120, // Kasih tinggi fix biar rapi
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F0F0F), // Lebih gelap dari card
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Center(
+        child: Wrap(
+          spacing: 4,
+          runSpacing: 4,
+          children: List.generate(35, (index) {
+            bool active = (index * 7) % 3 ==
+                0; // Masih visual random, nanti bisa di-connect
+            return Container(
+              width: 16,
+              height: 16,
+              decoration: BoxDecoration(
+                color: active
+                    ? AppTheme.primaryColor.withOpacity((index % 5 + 1) * 0.2)
+                    : Colors.grey[900],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            );
+          }),
+        ),
       ),
     );
   }

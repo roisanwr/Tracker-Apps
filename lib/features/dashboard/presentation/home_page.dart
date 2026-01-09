@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-// ⚡ IMPORT TIMEZONE
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:workout_tracker/core/theme/app_theme.dart';
+
+// ---------------------------------------------------------------------------
+// ⚡ PERUBAHAN DISINI:
+// Mengarah ke folder baru yang sudah kita rapikan (Clean Architecture)
+// ---------------------------------------------------------------------------
+import 'package:workout_tracker/features/task/presentation/task_view.dart';
+// ---------------------------------------------------------------------------
+
+import 'package:workout_tracker/features/dashboard/presentation/dashboard_view.dart';
 import 'package:workout_tracker/features/auth/presentation/login_page.dart';
-import 'package:workout_tracker/features/tracker/dashboard_view.dart';
-import 'package:workout_tracker/features/tracker/task_view.dart';
-import 'package:workout_tracker/features/tracker/workout_view.dart';
-import 'package:workout_tracker/features/tracker/shop_view.dart'; // 👈 Import ini
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -20,32 +24,41 @@ class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
   final String _userId = Supabase.instance.client.auth.currentUser!.id;
 
-  static const List<Widget> _pages = <Widget>[
-    DashboardView(),
-    WorkoutView(),
-    TaskView(),
-    ShopView(),
+  // Daftar Halaman
+  final List<Widget> _pages = [
+    // 1. Dashboard (HQ)
+    const DashboardView(),
+
+    // 2. Training (Placeholder)
+    const Scaffold(
+      backgroundColor: Colors.black,
+      body: Center(
+          child: Text("Workout View", style: TextStyle(color: Colors.white))),
+    ),
+
+    // 3. Missions (Task) - Memanggil Class dari file task_view.dart yang baru
+    const TaskView(),
+
+    // 4. Market (Placeholder)
+    const Scaffold(
+      backgroundColor: Colors.black,
+      body: Center(
+          child: Text("Shop View", style: TextStyle(color: Colors.white))),
+    ),
   ];
 
   @override
   void initState() {
     super.initState();
-    // ⚡ AUTO-REPORT: Lapor Timezone ke Database saat aplikasi dibuka
     _updateUserTimezone();
   }
 
-  // Fungsi untuk update Timezone User di Database
   Future<void> _updateUserTimezone() async {
     try {
-      // 1. Ambil Timezone dari HP (Contoh: "Asia/Jakarta")
       final String currentTimezone = await FlutterTimezone.getLocalTimezone();
-
-      // 2. Kirim ke Database
       await Supabase.instance.client
           .from('profiles')
           .update({'timezone': currentTimezone}).eq('id', _userId);
-
-      // debugPrint("✅ Timezone updated to: $currentTimezone");
     } catch (e) {
       debugPrint("⚠️ Failed to update timezone: $e");
     }
@@ -147,7 +160,6 @@ class _HomePageState extends State<HomePage> {
           ],
           title: Row(
             children: [
-              // Avatar & Level
               Stack(
                 alignment: Alignment.bottomRight,
                 children: [
@@ -174,8 +186,6 @@ class _HomePageState extends State<HomePage> {
                 ],
               ),
               const SizedBox(width: 12),
-
-              // XP Bar & Name
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -209,10 +219,7 @@ class _HomePageState extends State<HomePage> {
                   ],
                 ),
               ),
-
               const SizedBox(width: 12),
-
-              // Currency & Streak
               Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.end,

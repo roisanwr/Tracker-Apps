@@ -1,17 +1,17 @@
-// lib/main.dart
 import 'package:flutter/material.dart';
+import 'package:workout_tracker/core/services/supabase_service.dart';
+import 'package:workout_tracker/core/theme/app_theme.dart';
+// Nanti kita arahkan ke SplashPage atau AuthGate, sementara ke Container kosong dulu gpp
+// import 'features/auth/presentation/login_page.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'features/auth/presentation/login_page.dart';
-import 'features/tracker/home_page.dart'; // Pastikan import HomePage ada
-import 'core/theme/app_theme.dart';
+import 'package:workout_tracker/features/auth/presentation/login_page.dart';
+import 'package:workout_tracker/features/dashboard/presentation/home_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Supabase.initialize(
-    url: 'https://xybczhxtbaegdmmasvcr.supabase.co', 
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5YmN6aHh0YmFlZ2RtbWFzdmNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc0NDkyNjIsImV4cCI6MjA4MzAyNTI2Mn0.5FZ1_heSaRIw1lFajoGLSyvhZdPLzildknzfr2ZrR6A', // (Isi key kamu yg panjang itu)
-  );
+  // 1. Inisialisasi Database lewat Service baru kita
+  await SupabaseService.initialize();
 
   runApp(const MyApp());
 }
@@ -21,20 +21,31 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 1. CEK SESI SAAT INI 🕵️‍♂️
-    // Supabase menyimpan sesi di penyimpanan lokal HP otomatis.
-    final session = Supabase.instance.client.auth.currentSession;
-    final isLoggedIn = session != null;
-
     return MaterialApp(
-      title: 'Workout Tracker',
+      title: 'Workout Tracker RPG',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.darkTheme,
-      
-      // 2. LOGIKA PENENTU HALAMAN AWAL 🚦
-      // Kalau isLoggedIn true -> Ke HomePage
-      // Kalau false -> Ke LoginPage
-      home: isLoggedIn ? const HomePage() : const LoginPage(),
+      theme: AppTheme.darkTheme, // Ambil dari core/theme
+
+      // LOGIKA NAVIGASI SEMENTARA:
+      // Kita cek langsung status auth dari Service
+      home: SupabaseService().isAuthenticated
+          ? const HomePage()
+          : const LoginPage(), // <-- Gunakan Login Page yang baru
     );
   }
+}
+
+// --- WIDGET SEMENTARA (Biar gak error pas di-run sebelum kita pindahin fitur lain) ---
+class TempHomePage extends StatelessWidget {
+  const TempHomePage({super.key});
+  @override
+  Widget build(BuildContext context) =>
+      Scaffold(body: Center(child: Text("Home (Refactoring...)")));
+}
+
+class TempLoginPage extends StatelessWidget {
+  const TempLoginPage({super.key});
+  @override
+  Widget build(BuildContext context) =>
+      Scaffold(body: Center(child: Text("Login (Refactoring...)")));
 }

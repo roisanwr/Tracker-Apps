@@ -12,33 +12,44 @@ class AppTheme {
   // Ekspos warna utama dan sekunder agar file lain dapat merujuknya
   static const Color primaryColor = neonBlue;
   static const Color secondaryColor = neonYellow;
+
   static ThemeData get darkTheme {
     return ThemeData(
+      useMaterial3: true,
       brightness: Brightness.dark,
       scaffoldBackgroundColor: background,
       primaryColor: neonBlue,
+
       colorScheme: const ColorScheme.dark(
         primary: neonBlue,
         secondary: neonYellow,
+        surface: surface,
+        background: background,
+        error: neonPink,
+        onPrimary: Colors.black, // Teks di atas tombol Neon jadi hitam
+        onSurface: textWhite,
       ),
-      
+
       // Kustomisasi Input Text (Kotak isian)
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: surface,
         labelStyle: const TextStyle(color: Colors.grey),
         prefixIconColor: neonBlue,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none, // Default gak ada garis
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: surface), 
+          borderSide: const BorderSide(color: surface),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: neonBlue, width: 2), // Pas diklik nyala
+          borderSide:
+              const BorderSide(color: neonBlue, width: 2), // Pas diklik nyala
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
@@ -56,8 +67,19 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
+          padding: const EdgeInsets.symmetric(vertical: 16),
           textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
         ),
+      ),
+
+      // Kustomisasi AppBar
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        centerTitle: true,
+        iconTheme: IconThemeData(color: textWhite),
+        titleTextStyle: TextStyle(
+            color: textWhite, fontSize: 20, fontWeight: FontWeight.bold),
       ),
     );
   }

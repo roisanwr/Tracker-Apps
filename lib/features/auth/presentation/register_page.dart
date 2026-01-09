@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../services/auth_service.dart';
-import '../../../../core/theme/app_theme.dart'; // Pastikan path ini benar sesuai file tema kamu
+import 'package:workout_tracker/features/auth/data/auth_repository.dart'; // ✅ Import Repository
+import 'package:workout_tracker/core/theme/app_theme.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -11,14 +11,18 @@ class RegisterPage extends StatefulWidget {
 }
 
 class _RegisterPageState extends State<RegisterPage> {
+  // ✅ Panggil Repository
+  final AuthRepository _authRepository = AuthRepository();
+
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  final _authService = AuthService();
   bool _isLoading = false;
+  bool _obscurePassword = true;
+  bool _obscureConfirm = true;
 
   Future<void> _signUp() async {
-    // 1. Validasi Input
+    // 1. Validasi Input (TETAP)
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -42,43 +46,53 @@ class _RegisterPageState extends State<RegisterPage> {
     setState(() => _isLoading = true);
 
     try {
-      // 2. Tembak ke Supabase
-      await _authService.signUp(
-        email: _emailController.text,
-        password: _passwordController.text,
+      // 2. Tembak via Repository ✅
+      await _authRepository.register(
+        _emailController.text.trim(),
+        _passwordController.text.trim(),
       );
 
       if (mounted) {
-        // 3. LOGIC PENTING: Matikan Sesi (Logout)
-        // Biar user gak langsung masuk, tapi harus login manual
-        await _authService.signOut();
+        // 3. Matikan Sesi (Logout) via Repository ✅
+        await _authRepository.logout();
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Identity Created. System requires manual login.'),
-            backgroundColor: AppTheme.neonBlue, 
+            backgroundColor: AppTheme.neonBlue,
             duration: Duration(seconds: 4),
           ),
         );
 
         // 4. Tendang balik ke halaman Login
-        Navigator.pop(context); 
+        Navigator.pop(context);
       }
     } on AuthException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: AppTheme.neonPink),
+          SnackBar(
+              content: Text(e.message), backgroundColor: AppTheme.neonPink),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Critical Error: $e'), backgroundColor: AppTheme.neonPink),
+          SnackBar(
+              content: Text('Critical Error: $e'),
+              backgroundColor: AppTheme.neonPink),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
+  }
 
-    setState(() => _isLoading = false);
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
   }
 
   @override
@@ -95,21 +109,21 @@ class _RegisterPageState extends State<RegisterPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Icon Fingerprint biar keren
-              const Icon(Icons.fingerprint, size: 80, color: AppTheme.neonYellow),
+              // Icon Fingerprint (TETAP)
+              const Icon(Icons.fingerprint,
+                  size: 80, color: AppTheme.neonYellow),
               const SizedBox(height: 24),
               const Text(
                 'REGISTRATION PROTOCOL',
                 style: TextStyle(
-                  fontSize: 18,
-                  color: AppTheme.neonBlue,
-                  letterSpacing: 1.5,
-                  fontWeight: FontWeight.bold
-                ),
+                    fontSize: 18,
+                    color: AppTheme.neonBlue,
+                    letterSpacing: 1.5,
+                    fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 32),
-              
-              // Input Email
+
+              // Input Email (TETAP)
               TextField(
                 controller: _emailController,
                 style: const TextStyle(color: Colors.white),
@@ -119,32 +133,58 @@ class _RegisterPageState extends State<RegisterPage> {
                 ),
               ),
               const SizedBox(height: 16),
-              
-              // Input Password
+
+              // Input Password (with visibility toggle)
               TextField(
                 controller: _passwordController,
-                obscureText: true,
+                obscureText: _obscurePassword,
                 style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Create Passcode',
-                  prefixIcon: Icon(Icons.lock_outline),
+                  prefixIcon: const Icon(Icons.lock_outline),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscurePassword
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                      color: Colors.grey,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _obscurePassword = !_obscurePassword;
+                      });
+                    },
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
-              
-              // Confirm Password
+
+              // Confirm Password (with visibility toggle)
               TextField(
                 controller: _confirmPasswordController,
-                obscureText: true,
+                obscureText: _obscureConfirm,
                 style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Confirm Passcode',
-                  prefixIcon: Icon(Icons.verified_user_outlined), // Icon checklist
+                  prefixIcon: const Icon(Icons.verified_user_outlined),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscureConfirm
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                      color: Colors.grey,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _obscureConfirm = !_obscureConfirm;
+                      });
+                    },
+                  ),
                 ),
               ),
               const SizedBox(height: 32),
-              
-              // Tombol Daftar
+
+              // Tombol Daftar (TETAP)
               _isLoading
                   ? const CircularProgressIndicator(color: AppTheme.neonBlue)
                   : SizedBox(
@@ -153,10 +193,13 @@ class _RegisterPageState extends State<RegisterPage> {
                       child: ElevatedButton(
                         onPressed: _signUp,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.neonYellow, // Kuning biar beda sama Login
-                          foregroundColor: Colors.black, // Teks hitam
+                          backgroundColor: AppTheme.neonYellow,
+                          foregroundColor: Colors.black,
                         ),
-                        child: const Text('INITIALIZE REGISTRATION'),
+                        child: const Text(
+                          'REGISTRATION TO GAME',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
                       ),
                     ),
             ],

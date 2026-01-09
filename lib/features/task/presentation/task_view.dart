@@ -11,13 +11,67 @@ class TaskView extends StatefulWidget {
 }
 
 class _TaskViewState extends State<TaskView> {
-  // Inisialisasi Repository
   final TaskRepository _repository = TaskRepository();
+
+  // Handle Checkbox Tap
+  Future<void> _handleTaskToggle(TaskModel task, bool? value) async {
+    if (value == null) return;
+
+    try {
+      // UX: Tampilkan loading kecil atau feedback haptic (opsional)
+
+      if (value == true) {
+        // --- SELESAIKAN MISI ---
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Completing ${task.title}..."),
+            duration: const Duration(milliseconds: 500),
+            backgroundColor: Colors.blueGrey,
+          ),
+        );
+
+        await _repository.completeTask(task);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Mission Complete! +${task.xpReward} XP"),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        // --- UNDO MISI (BATALKAN) ---
+        await _repository.undoTask(task);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Undone. XP Reverted."),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 1),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Error: Pastikan internet lancar."),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black, // Background Gelap
+      backgroundColor: Colors.black,
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -29,7 +83,7 @@ class _TaskViewState extends State<TaskView> {
                 color: Colors.white,
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
-                fontFamily: 'monospace', // Font ala Game
+                fontFamily: 'monospace',
               ),
             ),
             const SizedBox(height: 16),
@@ -42,13 +96,16 @@ class _TaskViewState extends State<TaskView> {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator());
                   }
-
+                  if (snapshot.hasError) {
+                    return Center(
+                        child: Text("Error: ${snapshot.error}",
+                            style: const TextStyle(color: Colors.red)));
+                  }
                   if (!snapshot.hasData || snapshot.data!.isEmpty) {
                     return _buildEmptyState();
                   }
 
                   final tasks = snapshot.data!;
-
                   return ListView.separated(
                     itemCount: tasks.length,
                     separatorBuilder: (context, index) =>
@@ -64,11 +121,9 @@ class _TaskViewState extends State<TaskView> {
           ],
         ),
       ),
-      // Tombol Tambah Misi (Floating Action Button)
       floatingActionButton: FloatingActionButton(
         backgroundColor: AppTheme.primaryColor,
         onPressed: () {
-          // TODO: Buka Dialog Tambah Task
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text("Fitur Tambah Misi belum dibuat")),
           );
@@ -78,64 +133,85 @@ class _TaskViewState extends State<TaskView> {
     );
   }
 
-  // WIDGET KARTU MISI ALA RPG
   Widget _buildRpgTaskCard(TaskModel task) {
     final bool isDone = task.isCompleted;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isDone
-              ? Colors.green.withOpacity(0.5)
-              : Colors.grey.withOpacity(0.3),
-        ),
-        boxShadow: isDone
-            ? [BoxShadow(color: Colors.green.withOpacity(0.2), blurRadius: 8)]
-            : [],
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: Checkbox(
-          value: isDone,
-          activeColor: AppTheme.primaryColor,
-          onChanged: (val) async {
-            if (val == true) {
-              await _repository.completeTask(task);
-              // Feedback Suara atau Getar bisa ditaruh disini
-            }
-          },
-        ),
-        title: Text(
-          task.title,
-          style: TextStyle(
-            color: isDone ? Colors.grey : Colors.white,
-            decoration: isDone ? TextDecoration.lineThrough : null,
-            fontWeight: FontWeight.bold,
+    // Tentukan warna border berdasarkan Priority
+    Color priorityColor = Colors.grey;
+    if (task.priority == 'High') priorityColor = Colors.redAccent;
+    if (task.priority == 'Medium') priorityColor = Colors.amber;
+    if (task.priority == 'Low') priorityColor = Colors.green;
+
+    return Opacity(
+      opacity: isDone ? 0.6 : 1.0,
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isDone ? Colors.green.withOpacity(0.5) : Colors.white10,
           ),
         ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              task.description,
-              style: TextStyle(color: Colors.grey[400], fontSize: 12),
+        child: ListTile(
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+
+          // CHECKBOX
+          leading: Transform.scale(
+            scale: 1.2,
+            child: Checkbox(
+              value: isDone,
+              activeColor: AppTheme.primaryColor,
+              checkColor: Colors.black,
+              side: BorderSide(color: Colors.grey[600]!, width: 2),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(4)),
+              onChanged: (val) => _handleTaskToggle(task, val),
             ),
-            const SizedBox(height: 8),
-            // REWARD BADGES
-            Row(
-              children: [
-                _buildBadge(
-                    Icons.star, "+${task.xpReward} XP", Colors.purpleAccent),
-                const SizedBox(width: 8),
-                _buildBadge(
-                    Icons.monetization_on, "+${task.goldReward}", Colors.amber),
-              ],
-            )
-          ],
+          ),
+
+          // JUDUL & DESKRIPSI
+          title: Text(
+            task.title,
+            style: TextStyle(
+              color: isDone ? Colors.grey : Colors.white,
+              decoration: isDone ? TextDecoration.lineThrough : null,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 4),
+              // Badge Category & Value
+              Row(
+                children: [
+                  _buildSmallTag(task.category, Colors.blueGrey),
+                  const SizedBox(width: 8),
+                  Text(
+                    "${task.targetValue} ${task.unit}",
+                    style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              // REWARD BADGES (Dihitung dari Getter Model)
+              Row(
+                children: [
+                  _buildBadge(
+                      Icons.star, "+${task.xpReward} XP", Colors.purpleAccent),
+                  const SizedBox(width: 8),
+                  _buildBadge(Icons.monetization_on, "+${task.goldReward}",
+                      Colors.amber),
+                ],
+              )
+            ],
+          ),
+
+          // TAG PRIORITY
+          trailing: _buildPriorityTag(task.priority),
         ),
-        trailing: _buildDifficultyTag(task.difficulty),
       ),
     );
   }
@@ -161,13 +237,24 @@ class _TaskViewState extends State<TaskView> {
     );
   }
 
-  Widget _buildDifficultyTag(String difficulty) {
+  Widget _buildSmallTag(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(text, style: TextStyle(color: color, fontSize: 10)),
+    );
+  }
+
+  Widget _buildPriorityTag(String priority) {
     Color color;
-    switch (difficulty.toLowerCase()) {
-      case 'hard':
+    switch (priority) {
+      case 'High':
         color = Colors.red;
         break;
-      case 'medium':
+      case 'Medium':
         color = Colors.orange;
         break;
       default:
@@ -178,12 +265,11 @@ class _TaskViewState extends State<TaskView> {
       decoration: BoxDecoration(
         color: color.withOpacity(0.2),
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.5), width: 1),
       ),
-      child: Text(
-        difficulty,
-        style:
-            TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
-      ),
+      child: Text(priority,
+          style: TextStyle(
+              color: color, fontSize: 10, fontWeight: FontWeight.bold)),
     );
   }
 

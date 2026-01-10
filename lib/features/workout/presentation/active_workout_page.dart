@@ -112,7 +112,8 @@ class _ActiveWorkoutPageState extends State<ActiveWorkoutPage> {
     showModalBottomSheet(
         context: context,
         backgroundColor: const Color(0xFF1E1E1E),
-        builder: (ctx) => _ExercisePickerLocal(onSelect: (ex) {
+        isScrollControlled: true, // Biar full screen pas ngetik
+        builder: (ctx) => _ExercisePickerAndCreatorLocal(onSelect: (ex) {
               setState(() {
                 _activeExercises
                     .add(ActiveExerciseModel(exercise: ex, sets: []));
@@ -381,32 +382,166 @@ class _ActiveExerciseCard extends StatelessWidget {
   }
 }
 
-// Picker untuk Halaman Aktif (Simpel)
-class _ExercisePickerLocal extends StatelessWidget {
+// 🔥 PICKER BARU + CREATOR (Biar bisa create custom pas latihan!)
+class _ExercisePickerAndCreatorLocal extends StatefulWidget {
   final Function(ExerciseModel) onSelect;
-  const _ExercisePickerLocal({required this.onSelect});
+  const _ExercisePickerAndCreatorLocal({required this.onSelect});
+
+  @override
+  State<_ExercisePickerAndCreatorLocal> createState() =>
+      _ExercisePickerAndCreatorLocalState();
+}
+
+class _ExercisePickerAndCreatorLocalState
+    extends State<_ExercisePickerAndCreatorLocal>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  final TextEditingController _nameCtrl = TextEditingController();
+  String _muscle = 'Chest';
+  String _type = 'strength';
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
       padding: const EdgeInsets.all(16),
-      height: 400,
-      child: FutureBuilder<List<ExerciseModel>>(
-        future: WorkoutRepository().getExerciseLibrary(),
-        builder: (ctx, snap) {
-          if (!snap.hasData)
-            return const Center(child: CircularProgressIndicator());
-          return ListView.builder(
-            itemCount: snap.data!.length,
-            itemBuilder: (ctx, i) => ListTile(
-              title: Text(snap.data![i].name,
-                  style: const TextStyle(color: Colors.white)),
-              subtitle: Text(snap.data![i].targetMuscle,
-                  style: const TextStyle(color: Colors.grey)),
-              onTap: () => onSelect(snap.data![i]),
+      child: Column(
+        children: [
+          TabBar(
+            controller: _tabController,
+            indicatorColor: AppTheme.primaryColor,
+            labelColor: AppTheme.primaryColor,
+            unselectedLabelColor: Colors.grey,
+            tabs: const [Tab(text: "Library"), Tab(text: "Create Custom")],
+          ),
+          const SizedBox(height: 10),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                // TAB 1: LIBRARY LIST
+                FutureBuilder<List<ExerciseModel>>(
+                  future: WorkoutRepository().getExerciseLibrary(),
+                  builder: (ctx, snapshot) {
+                    if (!snapshot.hasData)
+                      return const Center(child: CircularProgressIndicator());
+                    final list = snapshot.data!;
+                    return ListView.separated(
+                      itemCount: list.length,
+                      separatorBuilder: (_, __) =>
+                          const Divider(color: Colors.white10),
+                      itemBuilder: (ctx, i) {
+                        final ex = list[i];
+                        return ListTile(
+                          title: Text(ex.name,
+                              style: const TextStyle(color: Colors.white)),
+                          subtitle: Text(ex.targetMuscle,
+                              style: const TextStyle(color: Colors.grey)),
+                          onTap: () => widget.onSelect(ex),
+                        );
+                      },
+                    );
+                  },
+                ),
+                // TAB 2: CREATE FORM
+                SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 20),
+                      TextField(
+                        controller: _nameCtrl,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: const InputDecoration(
+                            labelText: "Exercise Name",
+                            border: OutlineInputBorder()),
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField(
+                        value: _muscle,
+                        dropdownColor: const Color(0xFF2C2C2C),
+                        items: [
+                          'Chest',
+                          'Back',
+                          'Legs',
+                          'Shoulders',
+                          'Arms',
+                          'Core',
+                          'Cardio'
+                        ]
+                            .map((m) => DropdownMenuItem(
+                                value: m,
+                                child: Text(m,
+                                    style:
+                                        const TextStyle(color: Colors.white))))
+                            .toList(),
+                        onChanged: (v) => setState(() => _muscle = v!),
+                        decoration: const InputDecoration(
+                            labelText: "Target Muscle",
+                            border: OutlineInputBorder()),
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField(
+                        value: _type,
+                        dropdownColor: const Color(0xFF2C2C2C),
+                        items: [
+                          DropdownMenuItem(
+                              value: 'strength',
+                              child: Text("Strength (Reps)")),
+                          DropdownMenuItem(
+                              value: 'endurance',
+                              child: Text("Endurance (High Reps)")),
+                          DropdownMenuItem(
+                              value: 'static_hold',
+                              child: Text("Static (Seconds)")),
+                          DropdownMenuItem(
+                              value: 'cardio_run',
+                              child: Text("Cardio (Meters)")),
+                        ]
+                            .map((item) => DropdownMenuItem(
+                                value: item.value,
+                                child: Text((item.child as Text).data!,
+                                    style:
+                                        const TextStyle(color: Colors.white))))
+                            .toList(),
+                        onChanged: (v) => setState(() => _type = v!),
+                        decoration: const InputDecoration(
+                            labelText: "Type", border: OutlineInputBorder()),
+                      ),
+                      const SizedBox(height: 30),
+                      ElevatedButton(
+                        onPressed: () async {
+                          if (_nameCtrl.text.isEmpty) return;
+                          try {
+                            final newEx = await WorkoutRepository()
+                                .createCustomExercise(
+                                    _nameCtrl.text, _type, _muscle);
+                            widget.onSelect(newEx);
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text("Error: $e")));
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primaryColor,
+                            minimumSize: const Size(double.infinity, 50)),
+                        child: const Text("CREATE & ADD",
+                            style: TextStyle(
+                                color: Colors.black,
+                                fontWeight: FontWeight.bold)),
+                      )
+                    ],
+                  ),
+                )
+              ],
             ),
-          );
-        },
+          )
+        ],
       ),
     );
   }

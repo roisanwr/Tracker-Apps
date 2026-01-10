@@ -1,10 +1,10 @@
-// 1. Model untuk Library Latihan (Daftar Gerakan)
+/// Model untuk Data Latihan dari Library
 class ExerciseModel {
   final String id;
   final String name;
   final String targetMuscle;
-  final String scaleType; // 'strength', 'endurance', dll
-  final String unit; // 'reps', 'seconds', 'meters'
+  final String scaleType; // strength, endurance, etc.
+  final String unit; // reps, seconds, meters
 
   ExerciseModel({
     required this.id,
@@ -16,7 +16,7 @@ class ExerciseModel {
 
   factory ExerciseModel.fromJson(Map<String, dynamic> json) {
     return ExerciseModel(
-      id: json['id'] ?? '',
+      id: json['id']?.toString() ?? '',
       name: json['name'] ?? 'Unknown',
       targetMuscle: json['target_muscle'] ?? 'General',
       scaleType: json['scale_type'] ?? 'strength',
@@ -25,11 +25,11 @@ class ExerciseModel {
   }
 }
 
-// 2. Model untuk Set (Repetisi/Angkatan)
+/// Model untuk Satu Set Latihan (Repetisi, Berat, Status)
 class WorkoutSetModel {
-  String? id;
+  String? id; // Null jika belum disimpan ke DB
   int setNumber;
-  String tier; // 'D', 'C', 'B', 'A', 'S', 'SS'
+  String tier; // D, C, B, A, S, SS
   int targetValue;
   int? completedValue;
   double weightKg;
@@ -45,6 +45,7 @@ class WorkoutSetModel {
     this.isCompleted = false,
   });
 
+  // Konversi ke JSON untuk dikirim ke Supabase
   Map<String, dynamic> toJson() {
     return {
       if (id != null) 'id': id,
@@ -59,7 +60,7 @@ class WorkoutSetModel {
 
   factory WorkoutSetModel.fromJson(Map<String, dynamic> json) {
     return WorkoutSetModel(
-      id: json['id'],
+      id: json['id']?.toString(),
       setNumber: json['set_number'] ?? 1,
       tier: json['tier'] ?? 'D',
       targetValue: json['target_value'] ?? 0,
@@ -70,17 +71,17 @@ class WorkoutSetModel {
   }
 }
 
-// 3. Model untuk Exercise yang SEDANG dilakukan (Active)
+/// Model Helper untuk Halaman Active Workout
+/// Menampung Exercise + List Sets yang sedang dikerjakan
 class ActiveExerciseModel {
-  String? id; // ID di tabel workout_exercises
   final ExerciseModel exercise;
   List<WorkoutSetModel> sets;
-  String? notes;
+  String?
+      workoutExerciseId; // ID relasi di tabel workout_exercises (Active Session)
 
   ActiveExerciseModel({
-    this.id,
     required this.exercise,
     this.sets = const [],
-    this.notes,
+    this.workoutExerciseId,
   });
 }

@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:workout_tracker/features/task/data/task_model.dart';
 
 class TaskRepository {
+  // Singleton Pattern
   static final TaskRepository _instance = TaskRepository._internal();
   factory TaskRepository() => _instance;
   TaskRepository._internal();
@@ -10,14 +11,14 @@ class TaskRepository {
   final SupabaseClient _supabase = Supabase.instance.client;
   String get _userId => _supabase.auth.currentUser!.id;
 
-  // 1. STREAM TASKS (Raw Data)
+  // 1. STREAM TASKS (Raw Data dari Supabase)
   Stream<List<TaskModel>> getTasksStream() {
     return _supabase
         .from('tasks')
         .stream(primaryKey: ['id'])
         .eq('user_id', _userId)
-        .order('is_completed', ascending: true)
-        .order('priority', ascending: false) // High diatas
+        .order('is_completed', ascending: true) // Belum selesai di atas
+        .order('priority', ascending: false) // High priority di atas
         .map((data) => data.map((e) => TaskModel.fromJson(e)).toList());
   }
 
@@ -30,10 +31,10 @@ class TaskRepository {
         'is_completed': isCompleted,
         'current_value': isCompleted ? task.targetValue : 0,
         'last_completed_at':
-            isCompleted ? DateTime.now().toIso8601String() : null,
+            isCompleted ? DateTime.now().toUtc().toIso8601String() : null,
       }).eq('id', task.id);
 
-      // B. Hitung Reward Logic (Disalin dari kodemu)
+      // B. Hitung Reward Logic
       int xpReward = 0;
       int pointsReward = 0;
       int multiplier = task.frequency == 'Weekly' ? 2 : 1;
@@ -57,7 +58,7 @@ class TaskRepository {
         pointsReward = -pointsReward;
       }
 
-      // C. Insert Log
+      // C. Insert Log (Trigger XP/Gold di DB)
       await _supabase.from('point_logs').insert({
         'user_id': _userId,
         'xp_change': xpReward,
@@ -73,50 +74,66 @@ class TaskRepository {
     }
   }
 
-  // 3. SMART REFRESH (Reset Daily Tasks)
-  Future<int> refreshDailyTasks() async {
+  // 3. SMART GLOBAL RESET (Client-Side Logic) 🌍
+  Future<int> checkAndResetDailyTasks() async {
     try {
-      final response = await _supabase
-          .from('tasks')
-          .select()
-          .eq('user_id', _userId)
-          .eq('frequency', 'Daily')
-          .eq('is_completed', true);
-
       final now = DateTime.now();
-      final List<String> idsToReset = [];
+      // Format YYYY-MM-DD lokal
+      final todayStr =
+          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
 
-      for (var task in response) {
-        final completedAtStr = task['last_completed_at'];
-        if (completedAtStr == null) continue;
-        final completedAt = DateTime.parse(completedAtStr).toLocal();
+      // debugPrint("🔍 Checking Reset for: $todayStr");
 
-        final isSameDay = completedAt.year == now.year &&
-            completedAt.month == now.month &&
-            completedAt.day == now.day;
+      // A. Cek Profil: Kapan terakhir reset?
+      final profile = await _supabase
+          .from('profiles')
+          .select('last_daily_reset')
+          .eq('id', _userId)
+          .maybeSingle();
 
-        if (!isSameDay) {
-          idsToReset.add(task['id']);
-        }
+      if (profile == null) return 0; // Safety check
+
+      final lastReset = profile['last_daily_reset'] as String?;
+
+      // LOGIC UTAMA:
+      // Jika 'last_daily_reset' SAMA dengan hari ini, berarti SUDAH BERES.
+      // Tidak perlu reset lagi, tidak perlu update lagi.
+      if (lastReset == todayStr) {
+        // debugPrint("✅ Hari ini sudah reset ($todayStr). Skip.");
+        return 0;
       }
 
-      if (idsToReset.isNotEmpty) {
-        // Syntax .filter('id', 'in', list) sesuai Supabase v2
-        await _supabase.from('tasks').update({
-          'is_completed': false,
-          'current_value': 0,
-          'last_completed_at': null,
-        }).filter('id', 'in', idsToReset);
-      }
+      // B. Jika BEDA (Berarti hari baru atau user baru), LAKUKAN RESET.
+      debugPrint(
+          "⏳ Memulai Daily Reset (Last: $lastReset vs Today: $todayStr)...");
 
-      return idsToReset.length;
+      // 1. Update tanggal reset di profil DULUAN.
+      // Ini penting agar jika user mengerjakan tugas setelah ini,
+      // sistem tau bahwa hari ini sudah "ditandai" dan tidak akan mereset lagi.
+      await _supabase
+          .from('profiles')
+          .update({'last_daily_reset': todayStr}).eq('id', _userId);
+
+      // 2. Baru reset task-nya
+      await _supabase
+          .from('tasks')
+          .update({
+            'is_completed': false,
+            'current_value': 0,
+            'last_completed_at': null,
+          })
+          .eq('user_id', _userId)
+          .eq('frequency', 'Daily');
+
+      debugPrint("🎉 Daily Reset Selesai & Tanggal Updated!");
+      return 1; // Return 1 triggrer notifikasi "Good Morning"
     } catch (e) {
-      debugPrint("Refresh Error: $e");
+      debugPrint("❌ Error Reset: $e");
       return 0;
     }
   }
 
-  // 4. GENERATE FROM LIBRARY
+  // 4. GENERATE TASKS FROM LIBRARY
   Future<int> generateTasksFromLibrary(String frequency) async {
     final templates = await _supabase
         .from('task_library')
@@ -143,9 +160,9 @@ class TaskRepository {
     return newTasks.length;
   }
 
-  // 5. CRUD: Create / Update / Delete
+  // 5. CRUD Helper (Create/Update/Delete)
   Future<void> saveTask(Map<String, dynamic> data, {String? docId}) async {
-    data['user_id'] = _userId; // Ensure user ID
+    data['user_id'] = _userId;
     if (docId != null) {
       // Update
       await _supabase.from('tasks').update(data).eq('id', docId);

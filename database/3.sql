@@ -34,6 +34,3 @@ FOR DELETE USING (
 -- (Admin tetap butuh akses penuh, biasanya via dashboard Supabase langsung jadi service_role, tapi kalau mau via app:)
 -- Tambahkan policy khusus admin jika nanti kamu bikin dashboard admin di app ini.
 
--- Tambah kolom untuk mencatat kapan terakhir reset terjadi
-alter table public.profiles 
-add column if not exists last_daily_reset date;

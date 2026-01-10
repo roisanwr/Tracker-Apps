@@ -16,31 +16,34 @@ class _TaskViewState extends State<TaskView> {
 
   // State UI
   bool _isGenerating = false;
-  final Set<String> _processingTaskIds = {}; // Untuk Optimistic UI
+  final Set<String> _processingTaskIds = {}; // Optimistic UI Lock
   String _selectedFrequency = 'All';
   bool _hideCompleted = false;
 
   @override
   void initState() {
     super.initState();
-    // Auto-check reset saat dibuka (Logic ada di Repository)
-    _handleRefresh();
+    // ⚡ Auto-Check Reset saat dibuka
+    _checkDailyReset();
   }
 
-  // Smart Reset manual trigger
-  Future<void> _handleRefresh() async {
-    final count = await _repository.refreshDailyTasks();
-    if (count > 0 && mounted) {
+  Future<void> _checkDailyReset() async {
+    // Panggil fungsi pintar di Repository
+    final result = await _repository.checkAndResetDailyTasks();
+
+    // Kalau ada reset (result > 0), kasih tau user
+    if (result > 0 && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("New Day Started! 🌅 Reset $count tasks."),
+          content: const Text("☀️ Good Morning! Daily tasks have been reset."),
           backgroundColor: AppTheme.secondaryColor,
+          duration: const Duration(seconds: 3),
         ),
       );
     }
   }
 
-  // Generate Tasks
+  // Manual Generate Tasks
   Future<void> _generateDailyTasks() async {
     setState(() => _isGenerating = true);
     try {
@@ -57,22 +60,23 @@ class _TaskViewState extends State<TaskView> {
         );
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('$e'), backgroundColor: Colors.red));
+          SnackBar(content: Text('$e'), backgroundColor: Colors.red),
+        );
+      }
     } finally {
       setState(() => _isGenerating = false);
     }
   }
 
-  // Toggle Task (Optimistic UI)
+  // Toggle Task Action
   Future<void> _toggleTask(TaskModel task, bool? value) async {
     if (value == null || _processingTaskIds.contains(task.id)) return;
 
     setState(() => _processingTaskIds.add(task.id));
 
     try {
-      // Panggil Repo untuk update DB & Log
       final reward = await _repository.toggleTask(task, value);
 
       if (mounted) {
@@ -89,9 +93,11 @@ class _TaskViewState extends State<TaskView> {
         );
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
     } finally {
       if (mounted) setState(() => _processingTaskIds.remove(task.id));
     }
@@ -103,7 +109,7 @@ class _TaskViewState extends State<TaskView> {
       backgroundColor: Colors.transparent,
       body: Column(
         children: [
-          // --- HEADER & FILTER ---
+          // HEADER & FILTER
           Padding(
             padding:
                 const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -128,10 +134,11 @@ class _TaskViewState extends State<TaskView> {
             ),
           ),
 
-          // --- LIST TASK ---
+          // LIST TASK (STREAM)
           Expanded(
             child: RefreshIndicator(
-              onRefresh: _handleRefresh,
+              onRefresh:
+                  _checkDailyReset, // Manual Refresh juga bisa trigger cek reset
               color: AppTheme.primaryColor,
               backgroundColor: const Color(0xFF1E1E1E),
               child: StreamBuilder<List<TaskModel>>(
@@ -143,8 +150,9 @@ class _TaskViewState extends State<TaskView> {
                             color: AppTheme.primaryColor));
                   }
 
-                  // Filter Client Side (karena Supabase Stream limitasi filter dinamis)
                   var tasks = snapshot.data ?? [];
+
+                  // Client Side Filter
                   if (_selectedFrequency != 'All') {
                     tasks = tasks
                         .where((t) => t.frequency == _selectedFrequency)
@@ -179,10 +187,11 @@ class _TaskViewState extends State<TaskView> {
         ],
       ),
 
-      // --- FAB (ADD) ---
+      // FLOATING ACTION BUTTON (Add)
       floatingActionButton: FloatingActionButton(
         onPressed: () => showDialog(
             context: context,
+            // Pastikan TaskFormDialog sudah dibuat sesuai diskusi sebelumnya
             builder: (ctx) =>
                 TaskFormDialog(initialFrequency: _selectedFrequency)),
         backgroundColor: AppTheme.primaryColor,
@@ -191,7 +200,7 @@ class _TaskViewState extends State<TaskView> {
     );
   }
 
-  // --- WIDGETS KECIL (Bisa dipisah lagi ke file task_card.dart kalau mau ultra-clean) ---
+  // --- WIDGET HELPER ---
 
   Widget _buildFilterChip(String label) {
     final isSelected = _selectedFrequency == label;
@@ -313,10 +322,6 @@ class _TaskViewState extends State<TaskView> {
               children: [
                 _buildBadge(task.priority.toUpperCase(), badgeColor),
                 const SizedBox(width: 8),
-                if (_selectedFrequency == 'All') ...[
-                  _buildBadge(task.frequency, Colors.blueAccent),
-                  const SizedBox(width: 8),
-                ],
                 Text("${task.targetValue} ${task.unit}",
                     style: TextStyle(color: Colors.grey[500], fontSize: 12)),
               ],
@@ -394,10 +399,6 @@ class _TaskViewState extends State<TaskView> {
             onTap: () async {
               Navigator.pop(ctx);
               await _repository.deleteTask(task.id);
-              if (mounted)
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text('Mission deleted'),
-                    backgroundColor: Colors.grey));
             },
           ),
         ],

@@ -22,7 +22,7 @@ lib/
 │   │    ├── data/                # WorkoutRepository (Log latihan, List gerakan)
 │   │    └── presentation/        # ActiveWorkoutPage, WorkoutHistoryPage
 │   │
-│   └── 🏋️ tasl/             # (REFACTOR DARI TRACKER) - Latihan Fisik
+│   └── 🏋️ task/             # (REFACTOR DARI TRACKER) - Latihan Fisik
 │       ├── data/                # WorkoutRepository (Log latihan, List gerakan)
 │       └── presentation/        # ActiveWorkoutPage, WorkoutHistoryPage
 │

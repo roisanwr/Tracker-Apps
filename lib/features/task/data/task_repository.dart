@@ -11,22 +11,27 @@ class TaskRepository {
   final SupabaseClient _supabase = Supabase.instance.client;
   String get _userId => _supabase.auth.currentUser!.id;
 
-  // 1. STREAM TASKS (Raw Data dari Supabase)
+  // 1. STREAM TASKS
   Stream<List<TaskModel>> getTasksStream() {
     return _supabase
         .from('tasks')
         .stream(primaryKey: ['id'])
         .eq('user_id', _userId)
-        .order('is_completed', ascending: true) // Belum selesai di atas
-        .order('priority', ascending: false) // High priority di atas
+        .order('is_completed', ascending: true)
+        .order('priority', ascending: false)
         .map((data) => data.map((e) => TaskModel.fromJson(e)).toList());
   }
 
-  // 2. TOGGLE TASK (Complete/Undo + XP Logic)
+  // 2. TOGGLE TASK (Pure Client Update + Optimistic UI Calc)
   Future<Map<String, dynamic>> toggleTask(
       TaskModel task, bool isCompleted) async {
     try {
-      // A. Update Task Status
+      // A. Update Task Status ke Server
+      // Kita CUKUP update statusnya saja.
+      // Trigger di SQL 'on_task_completion' yang akan otomatis:
+      // 1. Mendeteksi perubahan
+      // 2. Menghitung poin
+      // 3. Menulis ke point_logs
       await _supabase.from('tasks').update({
         'is_completed': isCompleted,
         'current_value': isCompleted ? task.targetValue : 0,
@@ -34,103 +39,60 @@ class TaskRepository {
             isCompleted ? DateTime.now().toUtc().toIso8601String() : null,
       }).eq('id', task.id);
 
-      // B. Hitung Reward Logic
+      // B. OPTIMISTIC UI CALCULATION (Hanya untuk Tampilan!) 🎨
+      // Kita hitung lokal supaya UI bisa langsung kasih feedback "+50 XP"
+      // TANPA harus nunggu server balas atau fetch ulang log.
+      // Data ini TIDAK disimpan ke DB dari sini.
+
       int xpReward = 0;
       int pointsReward = 0;
       int multiplier = task.frequency == 'Weekly' ? 2 : 1;
 
       switch (task.priority) {
         case 'High':
-          xpReward = 50 * multiplier;
-          pointsReward = 15 * multiplier;
+          xpReward = 50;
+          pointsReward = 15;
           break;
         case 'Medium':
-          xpReward = 30 * multiplier;
-          pointsReward = 10 * multiplier;
+          xpReward = 30;
+          pointsReward = 10;
           break;
         default: // Low
-          xpReward = 10 * multiplier;
-          pointsReward = 5 * multiplier;
+          xpReward = 10;
+          pointsReward = 5;
       }
+
+      // Nerf Custom Task (Sinkron dengan Logic SQL)
+      if (task.isCustom) {
+        xpReward = (xpReward / 2).floor();
+        pointsReward = (pointsReward / 2).floor();
+        if (xpReward < 1) xpReward = 1;
+        if (pointsReward < 1) pointsReward = 1;
+      }
+
+      xpReward = xpReward * multiplier;
+      pointsReward = pointsReward * multiplier;
 
       if (!isCompleted) {
         xpReward = -xpReward;
         pointsReward = -pointsReward;
       }
 
-      // C. Insert Log (Trigger XP/Gold di DB)
-      await _supabase.from('point_logs').insert({
-        'user_id': _userId,
-        'xp_change': xpReward,
-        'points_change': pointsReward,
-        'source_type': 'task',
-        'description':
-            isCompleted ? 'Completed: ${task.title}' : 'Undo: ${task.title}',
-      });
+      // 🛑 STOP! JANGAN INSERT KE point_logs DARI SINI!
+      // Biarkan Trigger SQL yang bekerja.
 
+      // Return data estimasi ini cuma buat Snackbar/UI
       return {'xp': xpReward, 'points': pointsReward};
     } catch (e) {
       throw Exception('Gagal update task: $e');
     }
   }
 
-  // 3. SMART GLOBAL RESET (Client-Side Logic) 🌍
+  // 3. SMART GLOBAL RESET (DISABLED)
+  // Server Side Authority (via pg_cron)
   Future<int> checkAndResetDailyTasks() async {
-    try {
-      final now = DateTime.now();
-      // Format YYYY-MM-DD lokal
-      final todayStr =
-          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
-
-      // debugPrint("🔍 Checking Reset for: $todayStr");
-
-      // A. Cek Profil: Kapan terakhir reset?
-      final profile = await _supabase
-          .from('profiles')
-          .select('last_daily_reset')
-          .eq('id', _userId)
-          .maybeSingle();
-
-      if (profile == null) return 0; // Safety check
-
-      final lastReset = profile['last_daily_reset'] as String?;
-
-      // LOGIC UTAMA:
-      // Jika 'last_daily_reset' SAMA dengan hari ini, berarti SUDAH BERES.
-      // Tidak perlu reset lagi, tidak perlu update lagi.
-      if (lastReset == todayStr) {
-        // debugPrint("✅ Hari ini sudah reset ($todayStr). Skip.");
-        return 0;
-      }
-
-      // B. Jika BEDA (Berarti hari baru atau user baru), LAKUKAN RESET.
-      debugPrint(
-          "⏳ Memulai Daily Reset (Last: $lastReset vs Today: $todayStr)...");
-
-      // 1. Update tanggal reset di profil DULUAN.
-      // Ini penting agar jika user mengerjakan tugas setelah ini,
-      // sistem tau bahwa hari ini sudah "ditandai" dan tidak akan mereset lagi.
-      await _supabase
-          .from('profiles')
-          .update({'last_daily_reset': todayStr}).eq('id', _userId);
-
-      // 2. Baru reset task-nya
-      await _supabase
-          .from('tasks')
-          .update({
-            'is_completed': false,
-            'current_value': 0,
-            'last_completed_at': null,
-          })
-          .eq('user_id', _userId)
-          .eq('frequency', 'Daily');
-
-      debugPrint("🎉 Daily Reset Selesai & Tanggal Updated!");
-      return 1; // Return 1 triggrer notifikasi "Good Morning"
-    } catch (e) {
-      debugPrint("❌ Error Reset: $e");
-      return 0;
-    }
+    debugPrint("🤖 Daily Reset ditangani oleh Server Trigger. Client idle.");
+    return 0;
   }
 
   // 4. GENERATE TASKS FROM LIBRARY
@@ -153,6 +115,7 @@ class TaskRepository {
               'unit': t['default_unit'],
               'current_value': 0,
               'is_completed': false,
+              'is_custom': false, // ✨ Ini dari Library, jadi bukan Custom
             })
         .toList();
 
@@ -160,9 +123,15 @@ class TaskRepository {
     return newTasks.length;
   }
 
-  // 5. CRUD Helper (Create/Update/Delete)
+  // 5. CRUD Helper
   Future<void> saveTask(Map<String, dynamic> data, {String? docId}) async {
     data['user_id'] = _userId;
+    // Pastikan is_custom tersetting jika tidak ada
+    if (!data.containsKey('is_custom')) {
+      // Jika user bikin manual lewat form tambah task, anggap Custom
+      data['is_custom'] = true;
+    }
+
     if (docId != null) {
       // Update
       await _supabase.from('tasks').update(data).eq('id', docId);

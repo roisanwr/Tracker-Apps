@@ -12,6 +12,7 @@ import 'package:workout_tracker/features/task/presentation/task_view.dart';
 
 import 'package:workout_tracker/features/dashboard/presentation/dashboard_view.dart';
 import 'package:workout_tracker/features/auth/presentation/login_page.dart';
+import 'package:workout_tracker/features/workout/presentation/workout_dashboard_view.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -30,11 +31,7 @@ class _HomePageState extends State<HomePage> {
     const DashboardView(),
 
     // 2. Training (Placeholder)
-    const Scaffold(
-      backgroundColor: Colors.black,
-      body: Center(
-          child: Text("Workout View", style: TextStyle(color: Colors.white))),
-    ),
+    const WorkoutView(),
 
     // 3. Missions (Task) - Memanggil Class dari file task_view.dart yang baru
     const TaskView(),
@@ -65,6 +62,14 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _onItemTapped(int index) {
+    // If user taps the Training tab, navigate to the Workout page instead
+    if (index == 1) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (context) => const WorkoutView()),
+      );
+      return;
+    }
+
     setState(() {
       _selectedIndex = index;
     });

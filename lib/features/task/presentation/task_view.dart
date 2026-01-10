@@ -172,6 +172,27 @@ class _TaskViewState extends State<TaskView> {
                     ]);
                   }
 
+                  // 🔥 LOGIKA SORTING BARU 🔥
+                  tasks.sort((a, b) {
+                    // 1. Urutkan berdasarkan Priority (High > Medium > Low)
+                    // High=3, Medium=2, Low=1. Kita mau descending (b - a)
+                    int priorityComparison =
+                        b.priorityScore.compareTo(a.priorityScore);
+
+                    if (priorityComparison != 0) {
+                      return priorityComparison; // Kalau beda prioritas, stop di sini
+                    }
+
+                    // 2. Kalau Priority sama, Urutkan Status (Active > Completed)
+                    // Active (false) harus di atas Completed (true)
+                    if (a.isCompleted != b.isCompleted) {
+                      return a.isCompleted ? 1 : -1;
+                    }
+
+                    // 3. (Opsional) Kalau status sama juga, urutkan judul A-Z biar rapi
+                    return a.title.compareTo(b.title);
+                  });
+
                   return ListView.separated(
                     padding: const EdgeInsets.all(16),
                     itemCount: tasks.length,

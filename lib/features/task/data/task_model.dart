@@ -9,6 +9,7 @@ class TaskModel {
   final String unit;
   final int currentValue;
   final bool isCompleted;
+  final bool isCustom; // ✨ NEW: Field baru biar sinkron sama DB
   final DateTime? lastCompletedAt;
   final DateTime? createdAt;
 
@@ -23,6 +24,7 @@ class TaskModel {
     required this.unit,
     required this.currentValue,
     required this.isCompleted,
+    required this.isCustom, // ✨ Wajib diisi
     this.lastCompletedAt,
     this.createdAt,
   });
@@ -43,6 +45,7 @@ class TaskModel {
           ? json['current_value']
           : int.tryParse(json['current_value']?.toString() ?? '0') ?? 0,
       isCompleted: json['is_completed'] ?? false,
+      isCustom: json['is_custom'] ?? false, // ✨ Ambil dari JSON, default false
       lastCompletedAt: json['last_completed_at'] != null
           ? DateTime.parse(json['last_completed_at']).toLocal()
           : null,
@@ -63,6 +66,7 @@ class TaskModel {
       'unit': unit,
       'current_value': currentValue,
       'is_completed': isCompleted,
+      'is_custom': isCustom, // ✨ Kirim balik ke DB
       'last_completed_at': lastCompletedAt?.toIso8601String(),
     };
   }

@@ -3,85 +3,161 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:workout_tracker/features/task/data/task_model.dart';
 
 class TaskRepository {
-  final SupabaseClient _supabase = Supabase.instance.client;
+  static final TaskRepository _instance = TaskRepository._internal();
+  factory TaskRepository() => _instance;
+  TaskRepository._internal();
 
+  final SupabaseClient _supabase = Supabase.instance.client;
   String get _userId => _supabase.auth.currentUser!.id;
 
-  // 1. AMBIL TASK (STREAM)
+  // 1. STREAM TASKS (Raw Data)
   Stream<List<TaskModel>> getTasksStream() {
     return _supabase
         .from('tasks')
         .stream(primaryKey: ['id'])
         .eq('user_id', _userId)
-        .order('is_completed', ascending: true) // Yang belum selesai di atas
-        .order('created_at')
-        .map<List<TaskModel>>((event) {
-          final list = event as List<dynamic>?;
-          if (list == null) return <TaskModel>[];
-          return list
-              .map((e) =>
-                  TaskModel.fromJson(Map<String, dynamic>.from(e as Map)))
-              .toList();
-        });
+        .order('is_completed', ascending: true)
+        .order('priority', ascending: false) // High diatas
+        .map((data) => data.map((e) => TaskModel.fromJson(e)).toList());
   }
 
-  // 2. SELESAIKAN MISI (INSERT KE LOG)
-  Future<void> completeTask(TaskModel task) async {
+  // 2. TOGGLE TASK (Complete/Undo + XP Logic)
+  Future<Map<String, dynamic>> toggleTask(
+      TaskModel task, bool isCompleted) async {
     try {
-      if (task.isCompleted) return; // Cegah double click
-
-      debugPrint("⏳ Completing task: ${task.title}");
-
-      // A. Update Status Task di Database
+      // A. Update Task Status
       await _supabase.from('tasks').update({
-        'is_completed': true,
-        'current_value': task.targetValue, // Langsung set max
-        'last_completed_at': DateTime.now().toIso8601String(),
+        'is_completed': isCompleted,
+        'current_value': isCompleted ? task.targetValue : 0,
+        'last_completed_at':
+            isCompleted ? DateTime.now().toIso8601String() : null,
       }).eq('id', task.id);
 
-      // B. Insert ke Point Logs (PENTING! Ini trigger buat nambah XP & Gold)
+      // B. Hitung Reward Logic (Disalin dari kodemu)
+      int xpReward = 0;
+      int pointsReward = 0;
+      int multiplier = task.frequency == 'Weekly' ? 2 : 1;
+
+      switch (task.priority) {
+        case 'High':
+          xpReward = 50 * multiplier;
+          pointsReward = 15 * multiplier;
+          break;
+        case 'Medium':
+          xpReward = 30 * multiplier;
+          pointsReward = 10 * multiplier;
+          break;
+        default: // Low
+          xpReward = 10 * multiplier;
+          pointsReward = 5 * multiplier;
+      }
+
+      if (!isCompleted) {
+        xpReward = -xpReward;
+        pointsReward = -pointsReward;
+      }
+
+      // C. Insert Log
       await _supabase.from('point_logs').insert({
         'user_id': _userId,
-        'xp_change': task.xpReward, // Ambil dari Getter Model
-        'points_change': task.goldReward, // Ambil dari Getter Model
+        'xp_change': xpReward,
+        'points_change': pointsReward,
         'source_type': 'task',
-        'description': 'Completed: ${task.title}',
+        'description':
+            isCompleted ? 'Completed: ${task.title}' : 'Undo: ${task.title}',
       });
 
-      debugPrint("✅ Task selesai & Log tercatat!");
+      return {'xp': xpReward, 'points': pointsReward};
     } catch (e) {
-      debugPrint("❌ ERROR completeTask: $e");
-      throw Exception('Gagal menyelesaikan misi: $e');
+      throw Exception('Gagal update task: $e');
     }
   }
 
-  // 3. UNDO MISI (BATALKAN & TARIK XP)
-  Future<void> undoTask(TaskModel task) async {
+  // 3. SMART REFRESH (Reset Daily Tasks)
+  Future<int> refreshDailyTasks() async {
     try {
-      if (!task.isCompleted) return;
+      final response = await _supabase
+          .from('tasks')
+          .select()
+          .eq('user_id', _userId)
+          .eq('frequency', 'Daily')
+          .eq('is_completed', true);
 
-      debugPrint("⏳ Undoing task: ${task.title}");
+      final now = DateTime.now();
+      final List<String> idsToReset = [];
 
-      // A. Kembalikan Status Task
-      await _supabase.from('tasks').update({
-        'is_completed': false,
-        'current_value': 0,
-        'last_completed_at': null,
-      }).eq('id', task.id);
+      for (var task in response) {
+        final completedAtStr = task['last_completed_at'];
+        if (completedAtStr == null) continue;
+        final completedAt = DateTime.parse(completedAtStr).toLocal();
 
-      // B. Insert Log Negatif (Kurangi XP & Gold)
-      await _supabase.from('point_logs').insert({
-        'user_id': _userId,
-        'xp_change': -task.xpReward, // MINUS
-        'points_change': -task.goldReward, // MINUS
-        'source_type': 'task',
-        'description': 'Undo: ${task.title}',
-      });
+        final isSameDay = completedAt.year == now.year &&
+            completedAt.month == now.month &&
+            completedAt.day == now.day;
 
-      debugPrint("✅ Task di-undo & XP ditarik!");
+        if (!isSameDay) {
+          idsToReset.add(task['id']);
+        }
+      }
+
+      if (idsToReset.isNotEmpty) {
+        // Syntax .filter('id', 'in', list) sesuai Supabase v2
+        await _supabase.from('tasks').update({
+          'is_completed': false,
+          'current_value': 0,
+          'last_completed_at': null,
+        }).filter('id', 'in', idsToReset);
+      }
+
+      return idsToReset.length;
     } catch (e) {
-      debugPrint("❌ ERROR undoTask: $e");
-      throw Exception('Gagal membatalkan misi: $e');
+      debugPrint("Refresh Error: $e");
+      return 0;
     }
+  }
+
+  // 4. GENERATE FROM LIBRARY
+  Future<int> generateTasksFromLibrary(String frequency) async {
+    final templates = await _supabase
+        .from('task_library')
+        .select()
+        .eq('default_frequency', frequency);
+
+    if (templates.isEmpty) return 0;
+
+    final List<Map<String, dynamic>> newTasks = templates
+        .map((t) => {
+              'user_id': _userId,
+              'title': t['title'],
+              'category': t['category'],
+              'priority': t['default_priority'],
+              'frequency': frequency,
+              'target_value': t['default_target_value'],
+              'unit': t['default_unit'],
+              'current_value': 0,
+              'is_completed': false,
+            })
+        .toList();
+
+    await _supabase.from('tasks').insert(newTasks);
+    return newTasks.length;
+  }
+
+  // 5. CRUD: Create / Update / Delete
+  Future<void> saveTask(Map<String, dynamic> data, {String? docId}) async {
+    data['user_id'] = _userId; // Ensure user ID
+    if (docId != null) {
+      // Update
+      await _supabase.from('tasks').update(data).eq('id', docId);
+    } else {
+      // Create
+      data['current_value'] = 0;
+      data['is_completed'] = false;
+      await _supabase.from('tasks').insert(data);
+    }
+  }
+
+  Future<void> deleteTask(String taskId) async {
+    await _supabase.from('tasks').delete().eq('id', taskId);
   }
 }

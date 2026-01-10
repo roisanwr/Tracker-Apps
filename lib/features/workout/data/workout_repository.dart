@@ -14,19 +14,17 @@ class WorkoutRepository {
   // ===========================================================================
 
   /// 1. Pastikan Template Mon-Sun tersedia di DB
-  /// Sesuai draft: Kita pakai kolom 'notes' untuk menyimpan nama Hari (Mon, Tue, dst)
   Future<void> ensureWeeklyTemplates() async {
     final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-    // Ambil template yang sudah ada
     final existing = await _supabase
         .from('workouts')
         .select()
         .eq('user_id', _userId)
         .eq('status', 'template');
 
-    // Cek satu-satu, kalau belum ada, buat baru
     for (var day in days) {
+      // Cek apakah sudah ada template untuk hari ini
       final exists = existing.any((w) => w['notes'] == day);
       if (!exists) {
         await _supabase.from('workouts').insert({
@@ -42,12 +40,14 @@ class WorkoutRepository {
   /// 2. Ambil Latihan untuk Hari Tertentu (misal: 'Mon')
   Future<List<ExerciseModel>> getTemplateExercises(String dayName) async {
     // A. Cari ID Workout Template untuk hari itu
+    // 🔥 FIX: Tambah .limit(1) biar kalau ada duplikat gak error
     final template = await _supabase
         .from('workouts')
         .select('id')
         .eq('user_id', _userId)
         .eq('status', 'template')
         .eq('notes', dayName)
+        .limit(1) // <--- PENYELAMAT! Ambil 1 aja.
         .maybeSingle();
 
     if (template == null) return [];
@@ -58,7 +58,6 @@ class WorkoutRepository {
         .select('exercise:exercise_library(*)')
         .eq('workout_id', template['id']);
 
-    // C. Mapping ke Model
     return (response as List).map((item) {
       final exData = item['exercise'] as Map<String, dynamic>;
       return ExerciseModel.fromJson(exData);
@@ -68,12 +67,14 @@ class WorkoutRepository {
   /// 3. Tambah Latihan ke Template Hari Ini
   Future<void> addExerciseToTemplate(
       String dayName, ExerciseModel exercise) async {
+    // 🔥 FIX: Tambah .limit(1) juga disini
     final template = await _supabase
         .from('workouts')
         .select('id')
         .eq('user_id', _userId)
         .eq('status', 'template')
         .eq('notes', dayName)
+        .limit(1) // <--- PENYELAMAT!
         .single();
 
     // Insert relasi
@@ -86,12 +87,14 @@ class WorkoutRepository {
   /// 4. Hapus Latihan dari Template
   Future<void> removeExerciseFromTemplate(
       String dayName, String exerciseId) async {
+    // 🔥 FIX: Tambah .limit(1) juga disini
     final template = await _supabase
         .from('workouts')
         .select('id')
         .eq('user_id', _userId)
         .eq('status', 'template')
         .eq('notes', dayName)
+        .limit(1) // <--- PENYELAMAT!
         .single();
 
     await _supabase
@@ -121,22 +124,23 @@ class WorkoutRepository {
   }
 
   /// 6. Simpan/Update Set (Logic Pintar)
-  /// Fungsi ini otomatis membuat relasi 'workout_exercises' jika belum ada untuk sesi ini.
   Future<void> saveSet({
     required String workoutId,
     required String exerciseId,
     required WorkoutSetModel set,
-    String? workoutExerciseId, // Jika null, kita cari/buat dulu
+    String? workoutExerciseId,
   }) async {
     String weId = workoutExerciseId ?? '';
 
     // A. Pastikan Relasi (Active Session -> Exercise) ada
     if (weId.isEmpty) {
+      // 🔥 FIX: Tambah .limit(1) biar aman
       final existing = await _supabase
           .from('workout_exercises')
           .select('id')
           .eq('workout_id', workoutId)
           .eq('exercise_id', exerciseId)
+          .limit(1)
           .maybeSingle();
 
       if (existing != null) {
@@ -154,7 +158,7 @@ class WorkoutRepository {
       }
     }
 
-    // B. Upsert Set (Insert or Update)
+    // B. Upsert Set
     final setData = {
       'workout_exercise_id': weId,
       'set_number': set.setNumber,
@@ -170,14 +174,13 @@ class WorkoutRepository {
     } else {
       final res =
           await _supabase.from('sets').insert(setData).select().single();
-      set.id = res['id']; // Update ID di memory lokal
+      set.id = res['id'];
     }
   }
 
   /// 7. Selesai Workout & Hitung XP
   Future<void> finishWorkout(
       String workoutId, int totalXP, int totalPoints) async {
-    // Update status workout
     await _supabase.from('workouts').update({
       'status': 'completed',
       'ended_at': DateTime.now().toUtc().toIso8601String(),
@@ -185,7 +188,6 @@ class WorkoutRepository {
       'total_points_earned': totalPoints,
     }).eq('id', workoutId);
 
-    // Catat ke Log (Trigger point user)
     await _supabase.from('point_logs').insert({
       'user_id': _userId,
       'xp_change': totalXP,
@@ -206,7 +208,7 @@ class WorkoutRepository {
     return (response as List).map((e) => ExerciseModel.fromJson(e)).toList();
   }
 
-  /// 9. Buat Latihan Custom (Fitur dari Draft Lama)
+  /// 9. Buat Latihan Custom
   Future<ExerciseModel> createCustomExercise(
       String name, String type, String muscle) async {
     String unit = 'reps';

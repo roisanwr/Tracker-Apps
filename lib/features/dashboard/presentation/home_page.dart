@@ -3,13 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:workout_tracker/core/theme/app_theme.dart';
 
-// ---------------------------------------------------------------------------
-// ⚡ PERUBAHAN DISINI:
-// Mengarah ke folder baru yang sudah kita rapikan (Clean Architecture)
-// ---------------------------------------------------------------------------
 import 'package:workout_tracker/features/task/presentation/task_view.dart';
-// ---------------------------------------------------------------------------
-
 import 'package:workout_tracker/features/dashboard/presentation/dashboard_view.dart';
 import 'package:workout_tracker/features/auth/presentation/login_page.dart';
 import 'package:workout_tracker/features/workout/presentation/workout_dashboard_view.dart';
@@ -30,10 +24,11 @@ class _HomePageState extends State<HomePage> {
     // 1. Dashboard (HQ)
     const DashboardView(),
 
-    // 2. Training (Placeholder)
+    // 2. Training (Workout View)
+    // 🔥 KITA MASUKKAN LANGSUNG KE SINI, BUKAN DI-PUSH TERPISAH
     const WorkoutView(),
 
-    // 3. Missions (Task) - Memanggil Class dari file task_view.dart yang baru
+    // 3. Missions (Task)
     const TaskView(),
 
     // 4. Market (Placeholder)
@@ -62,13 +57,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _onItemTapped(int index) {
-    // If user taps the Training tab, navigate to the Workout page instead
-    if (index == 1) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (context) => const WorkoutView()),
-      );
-      return;
-    }
+    // 🔥 PERBAIKAN: Hapus logika khusus untuk index == 1 (Training)
+    // Biarkan dia bekerja normal seperti tab lainnya (mengganti body)
 
     setState(() {
       _selectedIndex = index;
@@ -88,10 +78,12 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
+      // Header RPG akan selalu muncul karena ini adalah AppBar milik HomePage
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(80),
         child: _buildRpgHeader(),
       ),
+      // Body akan berganti sesuai _selectedIndex (termasuk WorkoutView)
       body: Center(
         child: _pages.elementAt(_selectedIndex),
       ),
